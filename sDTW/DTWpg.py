@@ -30,8 +30,6 @@ class dtw:
         
     
         self.ConvertDataFromJson(jsonObj)
-        
-        self.ApplyDTW()
     
     
     def ConvertDataFromJson(self, jsonObj):
@@ -40,6 +38,9 @@ class dtw:
         self.queries = [{key:batch} for key, batch in jsonObj.items() if key != "reference" and key != self.refID]
         
     def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
+        """ 
+        Takes a batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
+        """
         d = len(batch)
         L = len(batch[0]['values'])
         
@@ -51,6 +52,9 @@ class dtw:
         return MVTS        
         
     def ApplyDTW(self):
+        """
+        Perform the algorithm for all the query time series present in the .queries attribute with respect to the single one reference time series. Should be not difficult to extend to more than one reference
+        """
         
         self.referenceTS = self.ConvertToMVTS(self.reference)        
         
@@ -72,6 +76,9 @@ class dtw:
         print("\n")
                 
     def DTW(self):
+        """
+        Standard DTW algorithm, the result is to create the distance matrix and the accumulated distance matrix. The .Results method returns the information required based on the input parameters
+        """
         
         self.N, d1 = self.referenceTS.shape    
         self.M, d2 = self.queryTS.shape
@@ -90,7 +97,9 @@ class dtw:
     
     
     def AccumulatedDistanceComputation(self, step_pattern):
-        
+        """
+        Compute the accumulated distance matrix based on the given step_pattern
+        """
         self.accumulatedDistanceMatrix = np.zeros((self.N, self.M))
         self.accumulatedDistanceMatrix[0, 0] = self.distanceMatrix[0, 0]
         
@@ -109,6 +118,9 @@ class dtw:
                     
                     
     def Results(self):
+        """
+        Return the information in the form required via the initialization parameters. For now, just open-ended version on all subsequences
+        """
         if self.all_subseq:
             
             dataPoint = {"refID": self.refID,

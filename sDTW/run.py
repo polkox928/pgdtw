@@ -9,8 +9,8 @@ from DTWpg import dtw
 from time import time
 import pickle
 import pandas as pd
-from time import time
-import pickle
+import numpy as np
+
 
 with open("C:\\Users\\DEPAGRA\\Documents\\GitHub\\pgdtw\\data\\batch_data.pickle", "rb") as infile:
     batchData = pickle.load(infile)
@@ -32,6 +32,8 @@ for ID in IDs:
               dist_measure = "euclidean", 
               n_jobs = 1)
     
+    res.ApplyDTW()
+    
     historicalDataset = pd.DataFrame(columns = columns)
     for queryID, output in res.output.items():
         
@@ -43,3 +45,13 @@ for ID in IDs:
     print("Time elapsed: {0:.0f}:{1:02.0f} minutes\n".format(np.floor((time() - start)/60), (time()-start)%60))
 
 print("Total time elapsed: {0:.0f}:{1:02.0f} minutes\n".format(np.floor((time() - start)/60), (time()-start)%60))
+
+#%%
+import os
+complete = pd.DataFrame(columns = columns)
+
+for filename in os.listdir("data"):
+    complete = complete.append(pd.read_csv("data\\"+filename, header = 0), ignore_index = True)
+    
+complete.to_csv("data\\historicalDataset.csv", header = True, index = False)
+
