@@ -8,12 +8,10 @@ Created on Thu Oct 25 13:26:36 2018
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from collections import defaultdict
-from time import time
-import pickle
 from copy import deepcopy
 
 class dtw:
-    def __init__(self, jsonObj, open_ended = False, all_subseq = True, only_distance = True, dist_measure = "euclidean", n_jobs = -2):
+    def __init__(self, jsonObj, open_ended = False, all_subseq = True, only_distance = True, dist_measure = "euclidean", n_jobs = 1):
         """
         Initialization of the class.
         open_ended: boolean
@@ -54,19 +52,24 @@ class dtw:
         
     def ApplyDTW(self):
         
-        self.referenceTS = self.ConvertToMVTS(self.reference)
+        self.referenceTS = self.ConvertToMVTS(self.reference)        
+        
+        prog = 0
+        tot = len(self.queries)
         
         for queryBatch in self.queries:
+            prog+=1
+            print("\r{:>3.0%} Completed".format(prog/tot), end = "")
             for queryID, batch in queryBatch.items():
                 self.queryID = queryID
-                
-                print(self.queryID)
                 
                 self.queryTS = self.ConvertToMVTS(batch)
                 
                 self.DTW()
     
                 self.Results()
+            
+        print("\n")
                 
     def DTW(self):
         
@@ -102,8 +105,7 @@ class dtw:
             # inside the matrix
             for i in np.arange(1, self.N):
                 for j in np.arange(1, self.M):
-                    if __name__ == '__main__':
-                        self.accumulatedDistanceMatrix[i, j] = min(self.accumulatedDistanceMatrix[i-1, j], self.accumulatedDistanceMatrix[i, j-1], self.accumulatedDistanceMatrix[i-1, j-1] + self.distanceMatrix[i,j]) + self.distanceMatrix[i,j]
+                    self.accumulatedDistanceMatrix[i, j] = min(self.accumulatedDistanceMatrix[i-1, j], self.accumulatedDistanceMatrix[i, j-1], self.accumulatedDistanceMatrix[i-1, j-1] + self.distanceMatrix[i,j]) + self.distanceMatrix[i,j]
                     
                     
     def Results(self):
@@ -121,13 +123,6 @@ class dtw:
                 norm_const = dataPoint["t_query"] + dataPoint["t_ref"]
                 dataPoint["DTW_dist"] = self.accumulatedDistanceMatrix[dataPoint["t_ref"]-1, j] / norm_const
                 self.output[self.queryID].append(deepcopy(dataPoint))
-    
-        
-if __name__ == '__main__':
-    with open("batch_data.pickle", "rb") as infile:
-        batchData = pickle.load(infile)
-    start = time()
-    res = dtw(jsonObj = batchData, open_ended = True, all_subseq = True, only_distance = True, dist_measure = "euclidean", n_jobs = 1)
-    print("Total time elapsed: {:.0f} seconds".format(time() - start))
+
     
             
