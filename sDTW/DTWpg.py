@@ -11,7 +11,7 @@ from collections import defaultdict
 from copy import deepcopy
 
 class dtw:
-    def __init__(self, jsonObj, open_ended = False, all_subseq = True, only_distance = True, dist_measure = "euclidean", n_jobs = 1):
+    def __init__(self, jsonObj, open_ended = False, all_subseq = True, only_distance = True, dist_measure = "euclidean", scale = True, n_jobs = 1):
         """
         Initialization of the class.
         open_ended: boolean
@@ -25,6 +25,7 @@ class dtw:
         self.open_ended = open_ended
         self.n_jobs = n_jobs
         self.dist_measure = dist_measure
+        self.scale = scale 
         
         self.output = defaultdict(list)
         
@@ -41,13 +42,17 @@ class dtw:
         """ 
         Takes a batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
         """
-        d = len(batch)
-        L = len(batch[0]['values'])
+        self.d = len(batch)
+        self.L = len(batch[0]['values'])
         
-        MVTS = np.zeros((L, d))
+        MVTS = np.zeros((self.L, self.d))
         
-        for (i, pv) in zip(np.arange(d), batch):
+        for (i, pv) in zip(np.arange(self.d), batch):
             MVTS[:, i] = pv['values']
+            if self.scale:
+                minVal, maxVal  = min(MVTS[:, i]), max (MVTS[:, i])
+                rangeVal = max(maxVal-minVal, 1e-7)
+                MVTS[:, i] = (MVTS[:, i]-minVal)/rangeVal
 
         return MVTS        
         
@@ -94,8 +99,6 @@ class dtw:
         self.AccumulatedDistanceComputation(step_pattern = "symmetric2")
     
         
-    
-    
     def AccumulatedDistanceComputation(self, step_pattern):
         """
         Compute the accumulated distance matrix based on the given step_pattern
@@ -135,6 +138,16 @@ class dtw:
                 norm_const = dataPoint["t_query"] + dataPoint["t_ref"]
                 dataPoint["DTW_dist"] = self.accumulatedDistanceMatrix[dataPoint["t_ref"]-1, j] / norm_const
                 self.output[self.queryID].append(deepcopy(dataPoint))
+                
+    def shapeDescriptor(self, ts, descriptor = "raw", n_points = 3):
+        nd = self.d * n_points # dimensionality of the reshaped ts
+        shapedTS = np.zeros((self.L, nd))
+        for i in np.arange(self.L):
+            for j in np.arange(self.d):
+                for z in np.arange(-1, n_points - 1):
+                    try:
+                        
+        pass
 
     
             
