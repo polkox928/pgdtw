@@ -5,7 +5,7 @@ dataComplete = c(1024, 1045, 1025, 1133, 1038, 1097, 1081, 968, 1045, 1081, 1016
 
 batches = c()
 
-for (filename in list.files(path = "data/prediction")){
+for (filename in list.files(path = "noFirstBatchData/prediction")){
 
     if (startsWith(filename, "pred")){
         batches = c(batches, substr(filename, 5, 8))
@@ -33,7 +33,7 @@ qt_ls <- function(prob, df, mu, sp) qt(prob, df)*sp + mu
 
 for (batchID in batches){
 
-    df = read.csv(paste("data/prediction/pred", batchID, ".csv", sep = ""))
+    df = read.csv(paste("noFirstBatchData/prediction/pred", batchID, ".csv", sep = ""))
     
     true_length = df$T_query[1]
     
@@ -81,7 +81,7 @@ for (batchID in batches){
         intervals[n, ] = new.row
     }
     
-    png(paste("data/prediction/plots/",batchID, ".png", sep = ""), width = 10, height = 8, units = "in", res = 300)
+    png(paste("noFirstBatchData/prediction/plots/",batchID, ".png", sep = ""), width = 10, height = 8, units = "in", res = 300)
     
     plot(intervals$t, rep(true_length, n), type = "l", main = paste("Gradient Boosting, Mean Prediction", batchID), sub = paste(n,"/", true_length, " Minutes"), xlab = "t (min)", ylab = "Length (min)")
     

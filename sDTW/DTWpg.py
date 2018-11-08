@@ -9,9 +9,23 @@ import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from collections import defaultdict
 from copy import deepcopy
+from scipy.signal import butter, lfilter
+
+
+def butter_lowpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+
 
 class dtw:
-    def __init__(self, jsonObj, open_ended = False, all_subseq = True, only_distance = True, dist_measure = "euclidean", scale = True, n_jobs = 1):
+    def __init__(self, jsonObj, open_ended = False, all_subseq = True, only_distance = True, dist_measure = "euclidean", scale = True, low_filter = False, shapeDTW = False, n_points_shape = 3, shape_descriptor = "raw", norm_dist = True, n_jobs = 1):
         """
         Initialization of the class.
         open_ended: boolean
@@ -25,7 +39,17 @@ class dtw:
         self.open_ended = open_ended
         self.n_jobs = n_jobs
         self.dist_measure = dist_measure
-        self.scale = scale 
+        self.scale = scale
+        self.low_filter = low_filter
+        self.norm_dist = norm_dist
+        self.shapeDTW = shapeDTW
+        
+        self.n_points = n_points_shape
+        
+        if self.n_points%2 == 0:
+            self.n_points += 1
+        
+        self.shape_descriptor = shape_descriptor
         
         self.output = defaultdict(list)
         
@@ -42,18 +66,34 @@ class dtw:
         """ 
         Takes a batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
         """
-        self.d = len(batch)
         self.L = len(batch[0]['values'])
+        if not self.shapeDTW:
+            self.d = len(batch)
+            
+            MVTS = np.zeros((self.L, self.d))
+            
+            for (i, pv) in zip(np.arange(self.d), batch):
+                MVTS[:, i] = self.Scale(self.LowPassFilter(pv['values']))
+                
         
-        MVTS = np.zeros((self.L, self.d))
-        
-        for (i, pv) in zip(np.arange(self.d), batch):
-            MVTS[:, i] = pv['values']
-            if self.scale:
-                minVal, maxVal  = min(MVTS[:, i]), max (MVTS[:, i])
-                rangeVal = max(maxVal-minVal, 1e-7)
-                MVTS[:, i] = (MVTS[:, i]-minVal)/rangeVal
-
+        else:
+            d_original = len(batch)
+            if self.shape_descriptor == "raw":
+                d_reshaped = d_original*self.n_points
+                MVTS = np.zeros((self.L, d_reshaped))
+            
+                for (i, pv) in zip(np.arange(d_original), batch):
+                    MVTS[:, i*self.n_points:(i+1)*self.n_points] = self.ShapeDescriptor(self.Scale(pv['values']))
+            elif self.shape_descriptor == "derivative":
+                d_reshaped = d_original
+                MVTS = np.zeros((self.L, d_reshaped))
+                for (i, pv) in zip(np.arange(d_original), batch):
+                    MVTS[:, i] = self.ShapeDescriptor(self.Scale(pv['values']))
+                
+                
+            
+                
+                
         return MVTS        
         
     def ApplyDTW(self):
@@ -136,18 +176,50 @@ class dtw:
                 dataPoint["t_query"] = j + 1
                 dataPoint["t_ref"] = np.argmin(self.accumulatedDistanceMatrix[:, j]) + 1 
                 norm_const = dataPoint["t_query"] + dataPoint["t_ref"]
-                dataPoint["DTW_dist"] = self.accumulatedDistanceMatrix[dataPoint["t_ref"]-1, j] / norm_const
+                dataPoint["DTW_dist"] = self.accumulatedDistanceMatrix[dataPoint["t_ref"]-1, j]/(1 + self.norm_dist*(norm_const - 1))
                 self.output[self.queryID].append(deepcopy(dataPoint))
                 
-    def shapeDescriptor(self, ts, descriptor = "raw", n_points = 3):
-        nd = self.d * n_points # dimensionality of the reshaped ts
-        shapedTS = np.zeros((self.L, nd))
-        for i in np.arange(self.L):
-            for j in np.arange(self.d):
-                for z in np.arange(-1, n_points - 1):
-                    try:
-                        
-        pass
-
-    
+    def ShapeDescriptor(self, ts):
+        if self.shape_descriptor == "raw":
+            reshapedTS = np.zeros((self.L, self.n_points))
             
+            highIdx = (self.n_points - 1)//2
+    
+            reshapedTS[:, (self.n_points - 1)//2] = ts
+            
+            for shift, j in zip(np.arange(highIdx,0, -1), np.arange(0, highIdx)):
+                reshapedTS[shift:, j] = ts[:-shift]
+                reshapedTS[:j,j] = np.repeat(ts[0], j)
+                
+            for shift, j in zip(np.arange(1, highIdx + 1), np.arange(-highIdx, 0)):
+                reshapedTS[:-shift, j] = ts[shift:]
+                reshapedTS[-shift:,j] = np.repeat(ts[-1], shift)
+                
+            for i in np.arange(self.L):
+                reshapedTS[i, :] = reshapedTS[i, :] - min(reshapedTS[i, :])
+                
+        
+        
+        elif self.shape_descriptor == "derivative":
+            reshapedTS = np.zeros(ts.shape)
+            
+            for i in np.arange(1, len(reshapedTS) - 1):
+                reshapedTS[i] = ((ts[i] - ts[i-1]) + ((ts[i+1] - ts[i-1])/2))/2
+        
+        return reshapedTS
+            
+            
+    
+    def Scale(self, pv):
+        if self.scale:
+            minVal, maxVal  = min(pv), max (pv)
+            rangeVal = max(maxVal-minVal, 1e-7)
+            return (np.array(pv)-minVal)/rangeVal
+        return pv
+    
+    def LowPassFilter(self, ts, cutoff = 5, fs = 60.0, order = 6):
+        if self.low_filter:
+            return butter_lowpass_filter(ts, cutoff, fs, order)
+                
+        return ts
+        
