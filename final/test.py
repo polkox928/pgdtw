@@ -20,6 +20,11 @@ print(distMatrix)
 acc = d.CompAccDistmatrix(distMatrix, "symmetricP2")
 
 print(acc)
+print("Dist", acc[-1,-1])
 
 warp = d.GetWarpingPath(acc, "symmetricP2")
 print(warp)
+
+res = d.DTW(ref, query, "symmetricP2")
+
+print(res)

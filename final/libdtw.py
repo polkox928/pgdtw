@@ -21,12 +21,14 @@ class dtw:
         """
         refID = jsonObj["reference"]
         reference = jsonObj[refID]
-        queries = [{key:batch} for key, batch in jsonObj.items() if key != "reference" and key != refID]
+        queries = {key:batch for key, batch in jsonObj.items() if key != "reference" and key != refID}
 
         return {"refID": refID,
                 "reference": reference,
                 "queries": queries,
-                "num_queries": len(queries)}
+                "num_queries": len(queries),
+                "warpings" : dict(),
+                "distances": dict()}
 
     def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
         """
@@ -118,9 +120,9 @@ class dtw:
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
             P = int(step_pattern[10:])
-            p1 = acc_dist_matrix[i-P, j-(P+1)] + sum([distance_matrix[i-p, j-(p+1)] for p in np.arange(0, P)]) if (i-P>=0 and j-(P+1)>=0) else np.inf
+            p1 = acc_dist_matrix[i-P, j-(P+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in np.arange(0, P)]) + distance_matrix[i, j] if (i-P>=0 and j-(P+1)>=0) else np.inf
             p2 = acc_dist_matrix[i-1, j-1] + 2 * distance_matrix[i, j] if (i-1>=0 and j-1>=0) else np.inf
-            p3 = acc_dist_matrix[i-(P+1), j-P] + sum([distance_matrix[i-(p+1), j-p] for p in np.arange(0, P)]) if (i-(P+1)>=0 and j-P>=0) else np.inf
+            p3 = acc_dist_matrix[i-(P+1), j-P] + 2*sum([distance_matrix[i-(p+1), j-p] for p in np.arange(0, P)]) + distance_matrix[i, j] if (i-(P+1)>=0 and j-P>=0) else np.inf
 
             return min(p1, p2, p3)
 
@@ -205,7 +207,6 @@ class dtw:
                 j = M-1
 
                 while i != 0  and j != 0:
-                    print(i,j, wStep)
                     warpingPath.append((i,j))
                     candidates = list()
                     if wStep > 0: candidates.append((acc_dist_matrix[i-1,j-1], (i-1,j-1)))
@@ -238,3 +239,30 @@ class dtw:
                 return warpingPath[::-1]
 
             else: print("Invalid step-pattern")
+
+    def CallDTW(self, queryID, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, results = False):
+        referenceTS = self.ConvertToMVTS(self.data.reference)
+        queryTS = self.ConvertToMVTS(self.data.queries[queryID])
+
+        result = DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs)
+
+        self.data["warpings"][queryID] = result["warping"]
+        self.data["distances"][queryID] = result["DTW_distance"]
+
+        if results:
+            return result
+
+    def DTW(self, referenceTS, queryTS, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1):
+
+        distanceMatrix = self.CompDistMatrix(referenceTS, queryTS, dist_measure, n_jobs)
+
+        accDistMatrix = self.CompAccDistmatrix(distanceMatrix, step_pattern)
+
+        warping = self.GetWarpingPath(accDistMatrix, step_pattern)
+
+        dtwDist = accDistMatrix[-1,-1]
+
+
+
+        return {"warping": warping,
+                "DTW_distance": dtwDist}
