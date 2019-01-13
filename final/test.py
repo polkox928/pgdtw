@@ -17,14 +17,14 @@ distMatrix = d.CompDistMatrix(ref, query, "euclidean", 1)
 
 print(distMatrix)
 
-acc = d.CompAccDistmatrix(distMatrix, "symmetricP2")
+acc = d.CompAccDistmatrix(distMatrix, "symmetric2")
 
 print(acc)
 print("Dist", acc[-1,-1])
-
-warp = d.GetWarpingPath(acc, "symmetricP2")
+N,M = acc.shape
+warp = d.GetWarpingPath(acc, "symmetric2", N, M)
 print(warp)
 
-res = d.DTW(ref, query, "symmetricP2")
+res = d.DTW(ref, query, "symmetric2", open_ended = True)
 
 print(res)

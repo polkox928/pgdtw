@@ -126,11 +126,11 @@ class dtw:
 
             return min(p1, p2, p3)
 
-    def GetWarpingPath(self, acc_dist_matrix, step_pattern):
-        N, M = acc_dist_matrix.shape
+    def GetWarpingPath(self, acc_dist_matrix, step_pattern, N, M):
+        #N, M = acc_dist_matrix.shape
         warpingPath = list()
 
-        if step_pattern == "symmetric1" or step_pattern == "symemtric2":
+        if step_pattern == "symmetric1" or step_pattern == "symmetric2":
             i = N-1
             j = M-1
             while i != 0 or j != 0:
@@ -240,29 +240,38 @@ class dtw:
 
             else: print("Invalid step-pattern")
 
-    def CallDTW(self, queryID, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, results = False):
+    def CallDTW(self, queryID, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False, get_results = False):
         referenceTS = self.ConvertToMVTS(self.data.reference)
         queryTS = self.ConvertToMVTS(self.data.queries[queryID])
 
-        result = DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs)
+        result = DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
 
         self.data["warpings"][queryID] = result["warping"]
         self.data["distances"][queryID] = result["DTW_distance"]
 
-        if results:
+        if get_results:
             return result
 
-    def DTW(self, referenceTS, queryTS, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1):
+    def DTW(self, referenceTS, queryTS, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False):
 
         distanceMatrix = self.CompDistMatrix(referenceTS, queryTS, dist_measure, n_jobs)
 
         accDistMatrix = self.CompAccDistmatrix(distanceMatrix, step_pattern)
 
-        warping = self.GetWarpingPath(accDistMatrix, step_pattern)
+        N, M = accDistMatrix.shape
+        if open_ended: N = self.GetRefPrefix(accDistMatrix) + 1
 
-        dtwDist = accDistMatrix[-1,-1]
+        warping = self.GetWarpingPath(accDistMatrix, step_pattern, N, M)
 
-
+        if not open_ended: dtwDist = accDistMatrix[-1, -1]
+        else: dtwDist = accDistMatrix[N-1, -1]
 
         return {"warping": warping,
                 "DTW_distance": dtwDist}
+
+    def CallOpenDTW():
+        pass
+
+    def GetRefPrefix(self, acc_dist_matrix):
+        refPrefixLen = np.argmin(acc_dist_matrix[:,-1])
+        return refPrefixLen
