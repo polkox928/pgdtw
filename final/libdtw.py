@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 import re
+from collections import defaultdict
 
 class dtw:
     def __init__(self, jsonObj = False):
@@ -12,6 +13,8 @@ class dtw:
             pass
         else:
             self.data = self.ConvertDataFromJson(jsonObj)
+            self.scaleParams = self.GetScalingParameters()
+            self.RmvConstFeat()
 
     def ConvertDataFromJson(self, jsonObj):
         """
@@ -31,7 +34,61 @@ class dtw:
                 "num_queries": len(queries),
                 "warpings" : dict(),
                 "distances": dict()}
-
+        
+    def GetScalingParameters(self):
+        """
+        Computes the parameters necessary for scaling the features.
+        avgRange = [avgMin, avgMax]  
+        """
+        scaleParams = dict()
+            
+        for pv in self.data['reference']:
+            pvName = pv['name']
+            pvMin = min(pv['values'])
+            pvMax = max(pv['values'])
+            
+            scaleParams[pvName] = [[pvMin], [pvMax]]
+        
+        for _id, batch in self.data['queries'].items():
+            for pv in batch:
+                pvName = pv['name']
+                pvMin = min(pv['values'])
+                pvMax = max(pv['values'])
+                
+                scaleParams[pvName][0].append(pvMin)
+                scaleParams[pvName][1].append(pvMax)
+        
+        pvNames = scaleParams.keys()
+        for pv in pvNames:
+            scaleParams[pv] = np.median(scaleParams[pv], axis = 1)
+            
+        return scaleParams
+            
+    def RmvConstFeat(self):
+        constFeats = list()
+        for pvName, avgRange in self.scaleParams.items():
+            if abs(avgRange[0]-avgRange[1]) < 1e-6:
+                constFeats.append(pvName)
+        
+        IDs = list(self.data['queries'].keys())
+        for _id in IDs:
+            self.data['queries'][_id] = [pv for pv in self.data['queries'][_id] if pv['name'] not in constFeats]
+            
+        self.data['reference'] = [pv for pv in self.data['reference'] if pv['name'] not in constFeats]
+        
+    def ScalePV(self, pv_name, pv_values, mode = "single"):
+        if mode == "single":
+            minPV = min(pv_values)
+            maxPV = max(pv_values)
+            if abs(maxPV-minPV) > 1e-6:
+                scaledPvValues = (np.array(pv_values)-minPV)/(maxPV-minPV)
+            else:
+                scaledPvValues = .5 * np.ones(len(pv_values))
+        elif mode == "group":
+            avgMin, avgMax = self.scaleParams[pv_name]
+            scaledPvValues = (np.array(pv_values)-avgMin)/(avgMax-avgMin)
+        return scaledPvValues        
+        
     def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
         """
         Takes one batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
@@ -42,7 +99,7 @@ class dtw:
         MVTS = np.zeros((L, d))
 
         for (i, pv) in zip(np.arange(d), batch):
-            MVTS[:, i] = pv['values']
+            MVTS[:, i] = self.ScalePV(pv['name'], pv['values'], "single")
 
         return MVTS
 
@@ -259,8 +316,8 @@ class dtw:
         Calls the DTW method on the data stored in the .data attribute (needs only the queryID in addition to standard parameters)
         get_results if True returns the distance and the warping calculated; if False, only the .data attribute is updated
         """
-        referenceTS = self.ConvertToMVTS(self.data.reference)
-        queryTS = self.ConvertToMVTS(self.data.queries[queryID])
+        referenceTS = self.ConvertToMVTS(self.data['reference'])
+        queryTS = self.ConvertToMVTS(self.data['queries'][queryID])
 
         result = self.DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
 

@@ -10,7 +10,7 @@ import numpy as np
 
 ref = np.array([1,3,5,3,3,3,4,7,5,6]).reshape(-1,1)
 query = np.array([1,1.5,2,1,3,4,2]).reshape(-1,1)
-step_pattern = 'symmetricP3'
+step_pattern = 'symmetricP1'
 
 d = lib.dtw()
 
