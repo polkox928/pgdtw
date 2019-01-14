@@ -3,13 +3,15 @@ from sklearn.metrics.pairwise import pairwise_distances
 import re
 
 class dtw:
-    def __init__(self):#, jsonObj = 0):
+    def __init__(self, jsonObj = False):
         """
         Initialization of the class.
         jsonObj: contains the data in the usual format
         """
-        #self.data = self.ConvertDataFromJson(jsonObj)
-        pass
+        if not jsonObj:    
+            pass
+        else:
+            self.data = self.ConvertDataFromJson(jsonObj)
 
     def ConvertDataFromJson(self, jsonObj):
         """
@@ -60,7 +62,7 @@ class dtw:
             print("Number of features not coherent between reference ({0}) and query ({1})".format(d1,d2))
             return
 
-        d = d1  # d = dimensionality/number of features/PVs
+        #d = d1  # d = dimensionality/number of features/PVs
 
         distanceMatrix = pairwise_distances(X = referenceTS, Y = queryTS, metric = dist_measure, n_jobs= n_jobs)
 
@@ -78,11 +80,11 @@ class dtw:
 
         for i in np.arange(N):
             for j in np.arange(M):
-                accDistMatrix[i, j] = self.accElement(i, j, accDistMatrix, distance_matrix, step_pattern)
+                accDistMatrix[i, j] = self.CompAccElement(i, j, accDistMatrix, distance_matrix, step_pattern)
 
         return accDistMatrix
 
-    def accElement(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
+    def CompAccElement(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
         """
         Computes the value of a cell of the accumulated distance matrix
         i: row (reference) index
@@ -127,6 +129,10 @@ class dtw:
             return min(p1, p2, p3)
 
     def GetWarpingPath(self, acc_dist_matrix, step_pattern, N, M):
+        """
+        Computes the warping path on the acc_dist_matrix induced by step_pattern starting from the (N,M) point (this in order to use the method in both open_ended and global alignment)
+        Return the warping path (list of tuples) in ascending order
+        """
         #N, M = acc_dist_matrix.shape
         warpingPath = list()
 
@@ -151,6 +157,9 @@ class dtw:
             #minDiag = 1
             i = N-1
             j = M-1
+            if np.isinf(acc_dist_matrix[i,j]):
+                print("Invalid value for P, a global alignment is not possible with this local constraint")
+                return
             hStep = 0 #horizontal step
             vStep = 0 #vertical step
             dStep = 0 #diagonal step
@@ -201,11 +210,16 @@ class dtw:
             if patt.match(step_pattern):
 
                 minDiagSteps = int(step_pattern[10:])
+                
                 wStep = 0
                 dStep = 0
                 i = N-1
                 j = M-1
-
+               
+                if np.isinf(acc_dist_matrix[i,j]):
+                    print("Invalid value for P, a global alignment is not possible with this local constraint")
+                    return
+                
                 while i != 0  and j != 0:
                     warpingPath.append((i,j))
                     candidates = list()
@@ -241,10 +255,14 @@ class dtw:
             else: print("Invalid step-pattern")
 
     def CallDTW(self, queryID, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False, get_results = False):
+        """
+        Calls the DTW method on the data stored in the .data attribute (needs only the queryID in addition to standard parameters)
+        get_results if True returns the distance and the warping calculated; if False, only the .data attribute is updated
+        """
         referenceTS = self.ConvertToMVTS(self.data.reference)
         queryTS = self.ConvertToMVTS(self.data.queries[queryID])
 
-        result = DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
+        result = self.DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
 
         self.data["warpings"][queryID] = result["warping"]
         self.data["distances"][queryID] = result["DTW_distance"]
@@ -253,6 +271,21 @@ class dtw:
             return result
 
     def DTW(self, referenceTS, queryTS, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False):
+        """
+        Compute alignment betwwen referenceTS and queryTS (already in MVTS form).
+        Separate from CallDTW() for testing purposes
+        """
+        # Check for coherence of local constraint and global alignment (in case a PX local constraint is used)
+        if not open_ended:
+            patt = re.compile("symmetricP[1-9]+\d*")
+            if patt.match(step_pattern):
+                P = int(step_pattern[step_pattern.index("P")+1:])
+                N, M = len(referenceTS), len(queryTS)
+                Pmax = np.floor(min(N,M)/np.abs(N-M))
+                if P > Pmax:
+                    print("Invalid value for P, a global alignment is not possible with this local constraint")
+                    return
+            else: pass
 
         distanceMatrix = self.CompDistMatrix(referenceTS, queryTS, dist_measure, n_jobs)
 
@@ -269,9 +302,9 @@ class dtw:
         return {"warping": warping,
                 "DTW_distance": dtwDist}
 
-    def CallOpenDTW():
-        pass
-
     def GetRefPrefix(self, acc_dist_matrix):
-        refPrefixLen = np.argmin(acc_dist_matrix[:,-1])
+        """
+        Computes the length of the reference prefix in case of open-ended alignment
+        """
+        refPrefixLen = np.argmin(acc_dist_matrix[:, -1])
         return refPrefixLen
