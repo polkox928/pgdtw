@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+#%%  Trying stuff
 
 import libdtw as lib
 import pickle
@@ -51,9 +52,9 @@ data['reference'] = '5153'
 
 d = lib.dtw(data)
 ref = d.ConvertToMVTS(d.data['reference'])
-query = d.ConvertToMVTS(d.data['queries']['5341'])
+query = d.ConvertToMVTS(d.data['queries']['5300'])
 
-step_pattern = "symmetric2"
+step_pattern = "symmetricP05"
 res = d.DTW(ref, query, open_ended=False, step_pattern=step_pattern)
 warp = res['warping']
 
@@ -76,3 +77,5 @@ plt.ylim(0, ref.shape[0])
 plt.xlim(0, query.shape[0])
 plt.title('Accumulated Distance')
 plt.show()
+
+#%%

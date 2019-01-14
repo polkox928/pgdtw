@@ -348,7 +348,7 @@ class dtw:
             if patt.match(step_pattern):
                 P = int(step_pattern[step_pattern.index("P")+1:])
                 N, M = len(referenceTS), len(queryTS)
-                Pmax = np.floor(min(N,M)/np.abs(N-M))
+                Pmax = np.floor(min(N,M)/np.abs(N-M)) if np.abs(N-M) > 0 else np.inf
                 if P > Pmax:
                     print("Invalid value for P, a global alignment is not possible with this local constraint")
                     return
@@ -379,9 +379,12 @@ class dtw:
         return refPrefixLen
     
     def DistanceCostPlot(self, distance_matrix):
+        """
+        Draws a heatmap of distance_matrix, nan values are colored in green
+        """
         cmap = matplotlib.cm.inferno
-        cmap.set_bad('green',.5)
-        masked_array = np.ma.array (distance_matrix, mask=np.isnan(distance_matrix))
+        cmap.set_bad('green', .3)
+        masked_array = np.ma.array(distance_matrix, mask=np.isnan(distance_matrix))
         im = plt.imshow(masked_array, interpolation='nearest', cmap=cmap) 
         
         #ax.imshow(masked_array, interpolation='nearest', cmap=cmap)
