@@ -65,7 +65,7 @@ class dtw:
         self.reference = jsonObj[self.refID]
         self.queries = [{key:batch} for key, batch in jsonObj.items() if key != "reference" and key != self.refID]
         
-    def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series{
+    def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
         """ 
         Takes a batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
         """
