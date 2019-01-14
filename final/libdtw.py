@@ -1,15 +1,21 @@
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 import re
+import matplotlib.pyplot as plt
+import matplotlib
 
 class dtw:
-    def __init__(self):#, jsonObj = 0):
+    def __init__(self, jsonObj = False):
         """
         Initialization of the class.
         jsonObj: contains the data in the usual format
         """
-        #self.data = self.ConvertDataFromJson(jsonObj)
-        pass
+        if not jsonObj:    
+            pass
+        else:
+            self.data = self.ConvertDataFromJson(jsonObj)
+            self.scaleParams = self.GetScalingParameters()
+            self.RmvConstFeat()
 
     def ConvertDataFromJson(self, jsonObj):
         """
@@ -29,7 +35,70 @@ class dtw:
                 "num_queries": len(queries),
                 "warpings" : dict(),
                 "distances": dict()}
-
+        
+    def GetScalingParameters(self):
+        """
+        Computes the parameters necessary for scaling the features as a 'group'. This means considering the mean range of a variable across al the data set.
+        This seems creating problems, since the distributions for the minimum and the maximum are too spread out. This method is here just in case of future use and to help removing non-informative (constant) features.
+        avgRange = [avgMin, avgMax]  
+        """
+        scaleParams = dict()
+            
+        for pv in self.data['reference']:
+            pvName = pv['name']
+            pvMin = min(pv['values'])
+            pvMax = max(pv['values'])
+            
+            scaleParams[pvName] = [[pvMin], [pvMax]]
+        
+        for _id, batch in self.data['queries'].items():
+            for pv in batch:
+                pvName = pv['name']
+                pvMin = min(pv['values'])
+                pvMax = max(pv['values'])
+                
+                scaleParams[pvName][0].append(pvMin)
+                scaleParams[pvName][1].append(pvMax)
+        
+        pvNames = scaleParams.keys()
+        for pv in pvNames:
+            scaleParams[pv] = np.median(scaleParams[pv], axis = 1)
+            
+        return scaleParams
+            
+    def RmvConstFeat(self):
+        """
+        Removes non-informative features (features with low variability)
+        """
+        constFeats = list()
+        for pvName, avgRange in self.scaleParams.items():
+            if abs(avgRange[0]-avgRange[1]) < 1e-6:
+                constFeats.append(pvName)
+        
+        IDs = list(self.data['queries'].keys())
+        for _id in IDs:
+            self.data['queries'][_id] = [pv for pv in self.data['queries'][_id] if pv['name'] not in constFeats]
+            
+        self.data['reference'] = [pv for pv in self.data['reference'] if pv['name'] not in constFeats]
+        
+    def ScalePV(self, pv_name, pv_values, mode = "single"):
+        """
+        Scales features in two possible ways:
+            'single': the feature is scaled according to the values it assumes in the current batch
+            'group': the feature is scaled according to its average range across the whole data set
+        """
+        if mode == "single":
+            minPV = min(pv_values)
+            maxPV = max(pv_values)
+            if abs(maxPV-minPV) > 1e-6:
+                scaledPvValues = (np.array(pv_values)-minPV)/(maxPV-minPV)
+            else:
+                scaledPvValues = .5 * np.ones(len(pv_values))
+        elif mode == "group":
+            avgMin, avgMax = self.scaleParams[pv_name]
+            scaledPvValues = (np.array(pv_values)-avgMin)/(avgMax-avgMin)
+        return scaledPvValues        
+        
     def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
         """
         Takes one batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
@@ -40,7 +109,7 @@ class dtw:
         MVTS = np.zeros((L, d))
 
         for (i, pv) in zip(np.arange(d), batch):
-            MVTS[:, i] = pv['values']
+            MVTS[:, i] = self.ScalePV(pv['name'], pv['values'], "single")
 
         return MVTS
 
@@ -60,14 +129,14 @@ class dtw:
             print("Number of features not coherent between reference ({0}) and query ({1})".format(d1,d2))
             return
 
-        d = d1  # d = dimensionality/number of features/PVs
+        #d = d1  # d = dimensionality/number of features/PVs
 
         distanceMatrix = pairwise_distances(X = referenceTS, Y = queryTS, metric = dist_measure, n_jobs= n_jobs)
 
         return distanceMatrix
         #self.AccumulatedDistanceComputation(step_pattern = "symmetric2")
 
-    def CompAccDistmatrix(self, distance_matrix, step_pattern):
+    def CompAccDistMatrix(self, distance_matrix, step_pattern = 'symmetricP05'):
         """
         Computes the accumulated distance matrix starting from the distance_matrix according to the step_pattern indicated
         distance_matrix: cross distance matrix
@@ -78,11 +147,11 @@ class dtw:
 
         for i in np.arange(N):
             for j in np.arange(M):
-                accDistMatrix[i, j] = self.accElement(i, j, accDistMatrix, distance_matrix, step_pattern)
+                accDistMatrix[i, j] = self.CompAccElement(i, j, accDistMatrix, distance_matrix, step_pattern)
 
         return accDistMatrix
 
-    def accElement(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
+    def CompAccElement(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
         """
         Computes the value of a cell of the accumulated distance matrix
         i: row (reference) index
@@ -127,6 +196,10 @@ class dtw:
             return min(p1, p2, p3)
 
     def GetWarpingPath(self, acc_dist_matrix, step_pattern, N, M):
+        """
+        Computes the warping path on the acc_dist_matrix induced by step_pattern starting from the (N,M) point (this in order to use the method in both open_ended and global alignment)
+        Return the warping path (list of tuples) in ascending order
+        """
         #N, M = acc_dist_matrix.shape
         warpingPath = list()
 
@@ -151,6 +224,9 @@ class dtw:
             #minDiag = 1
             i = N-1
             j = M-1
+            if np.isinf(acc_dist_matrix[i,j]):
+                print("Invalid value for P, a global alignment is not possible with this local constraint")
+                return
             hStep = 0 #horizontal step
             vStep = 0 #vertical step
             dStep = 0 #diagonal step
@@ -201,11 +277,16 @@ class dtw:
             if patt.match(step_pattern):
 
                 minDiagSteps = int(step_pattern[10:])
+                
                 wStep = 0
                 dStep = 0
                 i = N-1
                 j = M-1
-
+               
+                if np.isinf(acc_dist_matrix[i,j]):
+                    print("Invalid value for P, a global alignment is not possible with this local constraint")
+                    return
+                
                 while i != 0  and j != 0:
                     warpingPath.append((i,j))
                     candidates = list()
@@ -241,10 +322,14 @@ class dtw:
             else: print("Invalid step-pattern")
 
     def CallDTW(self, queryID, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False, get_results = False):
-        referenceTS = self.ConvertToMVTS(self.data.reference)
-        queryTS = self.ConvertToMVTS(self.data.queries[queryID])
+        """
+        Calls the DTW method on the data stored in the .data attribute (needs only the queryID in addition to standard parameters)
+        get_results if True returns the distance and the warping calculated; if False, only the .data attribute is updated
+        """
+        referenceTS = self.ConvertToMVTS(self.data['reference'])
+        queryTS = self.ConvertToMVTS(self.data['queries'][queryID])
 
-        result = DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
+        result = self.DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
 
         self.data["warpings"][queryID] = result["warping"]
         self.data["distances"][queryID] = result["DTW_distance"]
@@ -253,25 +338,59 @@ class dtw:
             return result
 
     def DTW(self, referenceTS, queryTS, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False):
+        """
+        Compute alignment betwwen referenceTS and queryTS (already in MVTS form).
+        Separate from CallDTW() for testing purposes
+        """
+        # Check for coherence of local constraint and global alignment (in case a PX local constraint is used)
+        if not open_ended:
+            patt = re.compile("symmetricP[1-9]+\d*")
+            if patt.match(step_pattern):
+                P = int(step_pattern[step_pattern.index("P")+1:])
+                N, M = len(referenceTS), len(queryTS)
+                Pmax = np.floor(min(N,M)/np.abs(N-M)) if np.abs(N-M) > 0 else np.inf
+                if P > Pmax:
+                    print("Invalid value for P, a global alignment is not possible with this local constraint")
+                    return
+            else: pass
 
         distanceMatrix = self.CompDistMatrix(referenceTS, queryTS, dist_measure, n_jobs)
 
-        accDistMatrix = self.CompAccDistmatrix(distanceMatrix, step_pattern)
+        accDistMatrix = self.CompAccDistMatrix(distanceMatrix, step_pattern)
 
         N, M = accDistMatrix.shape
-        if open_ended: N = self.GetRefPrefix(accDistMatrix) + 1
+        # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
+        if open_ended: 
+            N = self.GetRefPrefixLength(accDistMatrix)
 
         warping = self.GetWarpingPath(accDistMatrix, step_pattern, N, M)
 
-        if not open_ended: dtwDist = accDistMatrix[-1, -1]
-        else: dtwDist = accDistMatrix[N-1, -1]
+        dtwDist = accDistMatrix[N-1, M-1]
 
         return {"warping": warping,
                 "DTW_distance": dtwDist}
 
-    def CallOpenDTW():
-        pass
-
-    def GetRefPrefix(self, acc_dist_matrix):
-        refPrefixLen = np.argmin(acc_dist_matrix[:,-1])
+    def GetRefPrefixLength(self, acc_dist_matrix):
+        """
+        Computes the length of the reference prefix in case of open-ended alignment
+        """
+        # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
+        refPrefixLen = np.argmin(acc_dist_matrix[:, -1]) + 1 
         return refPrefixLen
+    
+    def DistanceCostPlot(self, distance_matrix):
+        """
+        Draws a heatmap of distance_matrix, nan values are colored in green
+        """
+        cmap = matplotlib.cm.inferno
+        cmap.set_bad('green', .3)
+        masked_array = np.ma.array(distance_matrix, mask=np.isnan(distance_matrix))
+        im = plt.imshow(masked_array, interpolation='nearest', cmap=cmap) 
+        
+        #ax.imshow(masked_array, interpolation='nearest', cmap=cmap)
+
+        plt.gca().invert_yaxis()
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.grid()
+        plt.colorbar();
