@@ -51,10 +51,28 @@ data['reference'] = '5153'
 
 d = lib.dtw(data)
 ref = d.ConvertToMVTS(d.data['reference'])
-query = d.ConvertToMVTS(d.data['queries']['5158'])
-res = d.DTW(ref, query)
+query = d.ConvertToMVTS(d.data['queries']['5341'])
+
+step_pattern = "symmetric2"
+res = d.DTW(ref, query, open_ended=False, step_pattern=step_pattern)
 warp = res['warping']
 
-plt.plot([x[0] for x in warp], [x[1] for x in warp])
-plt.show()
 print(res['DTW_distance'])
+print(res['warping'][-1])
+
+fig=plt.figure(figsize=(12, 5))
+fig.add_subplot(1,2,1)
+d.DistanceCostPlot(d.CompDistMatrix(ref, query))
+plt.plot([x[1] for x in warp], [x[0] for x in warp])
+plt.ylim(0, ref.shape[0])
+plt.xlim(0, query.shape[0])
+plt.title('Distance Matrix')
+#plt.show()
+
+fig.add_subplot(1,2,2)
+d.DistanceCostPlot(d.CompAccDistMatrix(d.CompDistMatrix(ref, query), step_pattern=step_pattern))
+plt.plot([x[1] for x in warp], [x[0] for x in warp])
+plt.ylim(0, ref.shape[0])
+plt.xlim(0, query.shape[0])
+plt.title('Accumulated Distance')
+plt.show()

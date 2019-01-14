@@ -1,7 +1,8 @@
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 import re
-from collections import defaultdict
+import matplotlib.pyplot as plt
+import matplotlib
 
 class dtw:
     def __init__(self, jsonObj = False):
@@ -37,7 +38,8 @@ class dtw:
         
     def GetScalingParameters(self):
         """
-        Computes the parameters necessary for scaling the features.
+        Computes the parameters necessary for scaling the features as a 'group'. This means considering the mean range of a variable across al the data set.
+        This seems creating problems, since the distributions for the minimum and the maximum are too spread out. This method is here just in case of future use and to help removing non-informative (constant) features.
         avgRange = [avgMin, avgMax]  
         """
         scaleParams = dict()
@@ -65,6 +67,9 @@ class dtw:
         return scaleParams
             
     def RmvConstFeat(self):
+        """
+        Removes non-informative features (features with low variability)
+        """
         constFeats = list()
         for pvName, avgRange in self.scaleParams.items():
             if abs(avgRange[0]-avgRange[1]) < 1e-6:
@@ -77,6 +82,11 @@ class dtw:
         self.data['reference'] = [pv for pv in self.data['reference'] if pv['name'] not in constFeats]
         
     def ScalePV(self, pv_name, pv_values, mode = "single"):
+        """
+        Scales features in two possible ways:
+            'single': the feature is scaled according to the values it assumes in the current batch
+            'group': the feature is scaled according to its average range across the whole data set
+        """
         if mode == "single":
             minPV = min(pv_values)
             maxPV = max(pv_values)
@@ -126,7 +136,7 @@ class dtw:
         return distanceMatrix
         #self.AccumulatedDistanceComputation(step_pattern = "symmetric2")
 
-    def CompAccDistmatrix(self, distance_matrix, step_pattern):
+    def CompAccDistMatrix(self, distance_matrix, step_pattern = 'symmetricP05'):
         """
         Computes the accumulated distance matrix starting from the distance_matrix according to the step_pattern indicated
         distance_matrix: cross distance matrix
@@ -346,22 +356,38 @@ class dtw:
 
         distanceMatrix = self.CompDistMatrix(referenceTS, queryTS, dist_measure, n_jobs)
 
-        accDistMatrix = self.CompAccDistmatrix(distanceMatrix, step_pattern)
+        accDistMatrix = self.CompAccDistMatrix(distanceMatrix, step_pattern)
 
         N, M = accDistMatrix.shape
-        if open_ended: N = self.GetRefPrefix(accDistMatrix) + 1
+        # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
+        if open_ended: 
+            N = self.GetRefPrefixLength(accDistMatrix)
 
         warping = self.GetWarpingPath(accDistMatrix, step_pattern, N, M)
 
-        if not open_ended: dtwDist = accDistMatrix[-1, -1]
-        else: dtwDist = accDistMatrix[N-1, -1]
+        dtwDist = accDistMatrix[N-1, M-1]
 
         return {"warping": warping,
                 "DTW_distance": dtwDist}
 
-    def GetRefPrefix(self, acc_dist_matrix):
+    def GetRefPrefixLength(self, acc_dist_matrix):
         """
         Computes the length of the reference prefix in case of open-ended alignment
         """
-        refPrefixLen = np.argmin(acc_dist_matrix[:, -1])
+        # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
+        refPrefixLen = np.argmin(acc_dist_matrix[:, -1]) + 1 
         return refPrefixLen
+    
+    def DistanceCostPlot(self, distance_matrix):
+        cmap = matplotlib.cm.inferno
+        cmap.set_bad('green',.5)
+        masked_array = np.ma.array (distance_matrix, mask=np.isnan(distance_matrix))
+        im = plt.imshow(masked_array, interpolation='nearest', cmap=cmap) 
+        
+        #ax.imshow(masked_array, interpolation='nearest', cmap=cmap)
+
+        plt.gca().invert_yaxis()
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.grid()
+        plt.colorbar();
