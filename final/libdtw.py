@@ -4,15 +4,16 @@ import re
 import matplotlib.pyplot as plt
 import matplotlib
 import pickle
+from collections import defaultdict
 
 
 class dtw:
-    def __init__(self, jsonObj = False):
+    def __init__(self, jsonObj=False):
         """
         Initialization of the class.
         jsonObj: contains the data in the usual format
         """
-        if not jsonObj:    
+        if not jsonObj:
             pass
         else:
             self.data = self.ConvertDataFromJson(jsonObj)
@@ -29,47 +30,49 @@ class dtw:
         """
         refID = jsonObj["reference"]
         reference = jsonObj[refID]
-        queries = {key:batch for key, batch in jsonObj.items() if key != "reference" and key != refID}
+        queries = {key: batch for key, batch in jsonObj.items() if key !=
+                   "reference" and key != refID}
 
         return {"refID": refID,
                 "reference": reference,
                 "queries": queries,
                 "num_queries": len(queries),
-                "warpings" : dict(),
+                "warpings": dict(),
                 "distances": dict(),
                 "queriesID": list(queries.keys()),
-                "time_distortion": dict()}
-        
+                "time_distortion": defaultdict(dict),
+                "distance_distortion": defaultdict(dict)}
+
     def GetScalingParameters(self):
         """
         Computes the parameters necessary for scaling the features as a 'group'. This means considering the mean range of a variable across al the data set.
         This seems creating problems, since the distributions for the minimum and the maximum are too spread out. This method is here just in case of future use and to help removing non-informative (constant) features.
-        avgRange = [avgMin, avgMax]  
+        avgRange = [avgMin, avgMax]
         """
         scaleParams = dict()
-            
+
         for pv in self.data['reference']:
             pvName = pv['name']
             pvMin = min(pv['values'])
             pvMax = max(pv['values'])
-            
+
             scaleParams[pvName] = [[pvMin], [pvMax]]
-        
+
         for _id, batch in self.data['queries'].items():
             for pv in batch:
                 pvName = pv['name']
                 pvMin = min(pv['values'])
                 pvMax = max(pv['values'])
-                
+
                 scaleParams[pvName][0].append(pvMin)
                 scaleParams[pvName][1].append(pvMax)
-        
+
         pvNames = scaleParams.keys()
         for pv in pvNames:
-            scaleParams[pv] = np.median(scaleParams[pv], axis = 1)
-            
+            scaleParams[pv] = np.median(scaleParams[pv], axis=1)
+
         return scaleParams
-            
+
     def RmvConstFeat(self):
         """
         Removes non-informative features (features with low variability)
@@ -78,14 +81,16 @@ class dtw:
         for pvName, avgRange in self.scaleParams.items():
             if abs(avgRange[0]-avgRange[1]) < 1e-6:
                 constFeats.append(pvName)
-        
+
         IDs = list(self.data['queries'].keys())
         for _id in IDs:
-            self.data['queries'][_id] = [pv for pv in self.data['queries'][_id] if pv['name'] not in constFeats]
-            
-        self.data['reference'] = [pv for pv in self.data['reference'] if pv['name'] not in constFeats]
-        
-    def ScalePV(self, pv_name, pv_values, mode = "single"):
+            self.data['queries'][_id] = [pv for pv in self.data['queries']
+                                         [_id] if pv['name'] not in constFeats]
+
+        self.data['reference'] = [pv for pv in self.data['reference']
+                                  if pv['name'] not in constFeats]
+
+    def ScalePV(self, pv_name, pv_values, mode="single"):
         """
         Scales features in two possible ways:
             'single': the feature is scaled according to the values it assumes in the current batch
@@ -101,14 +106,14 @@ class dtw:
         elif mode == "group":
             avgMin, avgMax = self.scaleParams[pv_name]
             scaledPvValues = (np.array(pv_values)-avgMin)/(avgMax-avgMin)
-        return scaledPvValues        
-        
+        return scaledPvValues
+
     def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
         """
         Takes one batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
         """
-        L = len(batch[0]['values']) # Length of a batch (number of data points per single PV)
-        d = len(batch) # Number of PVs
+        L = len(batch[0]['values'])  # Length of a batch (number of data points per single PV)
+        d = len(batch)  # Number of PVs
 
         MVTS = np.zeros((L, d))
 
@@ -117,7 +122,7 @@ class dtw:
 
         return MVTS
 
-    def CompDistMatrix(self, referenceTS, queryTS, dist_measure = "euclidean", n_jobs = 1):
+    def CompDistMatrix(self, referenceTS, queryTS, dist_measure="euclidean", n_jobs=1):
         """
         Computes the distance matrix with N (length of the reference) number of rows and M (length of the query) number of columns (OK with convention on indices in DTW) with dist_measure as local distance measure
 
@@ -129,29 +134,32 @@ class dtw:
         N, d1 = referenceTS.shape
         M, d2 = queryTS.shape
 
-        if d1!= d2:
-            print("Number of features not coherent between reference ({0}) and query ({1})".format(d1,d2))
+        if d1 != d2:
+            print(
+                "Number of features not coherent between reference ({0}) and query ({1})".format(d1, d2))
             return
 
-        #d = d1  # d = dimensionality/number of features/PVs
+        # d = d1  # d = dimensionality/number of features/PVs
 
-        distanceMatrix = pairwise_distances(X = referenceTS, Y = queryTS, metric = dist_measure, n_jobs= n_jobs)
+        distanceMatrix = pairwise_distances(
+            X=referenceTS, Y=queryTS, metric=dist_measure, n_jobs=n_jobs)
 
         return distanceMatrix
         #self.AccumulatedDistanceComputation(step_pattern = "symmetric2")
 
-    def CompAccDistMatrix(self, distance_matrix, step_pattern = 'symmetricP05'):
+    def CompAccDistMatrix(self, distance_matrix, step_pattern='symmetricP05'):
         """
         Computes the accumulated distance matrix starting from the distance_matrix according to the step_pattern indicated
         distance_matrix: cross distance matrix
         step_pattern: string indicating the step pattern to be used. Can be symmetric1/2, symmetricP05 or symmetricPX, with X any positive integer
         """
         N, M = distance_matrix.shape
-        accDistMatrix = np.zeros((N,M))
+        accDistMatrix = np.zeros((N, M))
 
         for i in np.arange(N):
             for j in np.arange(M):
-                accDistMatrix[i, j] = self.CompAccElement(i, j, accDistMatrix, distance_matrix, step_pattern)
+                accDistMatrix[i, j] = self.CompAccElement(
+                    i, j, accDistMatrix, distance_matrix, step_pattern)
 
         return accDistMatrix
 
@@ -164,38 +172,49 @@ class dtw:
         distance_matrix: cross distance matrix
         step_pattern: step pattern to be used for calculations
         """
-        if (i==0 and j==0): return distance_matrix[0, 0]
+        if (i == 0 and j == 0):
+            return distance_matrix[0, 0]
 
         if step_pattern == "symmetricP05":
 
-            p1 = acc_dist_matrix[i-1, j-3] + 2 * distance_matrix[i, j-2] + distance_matrix[i, j-1] +     distance_matrix[i, j] if (i-1>=0 and j-3 >=0) else np.inf
-            p2 = acc_dist_matrix[i-1, j-2] + 2 * distance_matrix[i, j-1] + distance_matrix[i, j] if (i-1>=0 and j-2>=0) else np.inf
-            p3 = acc_dist_matrix[i-1, j-1] + 2 * distance_matrix[i, j] if (i-1>=0 and j-1>=0) else np.inf
-            p4 = acc_dist_matrix[i-2, j-1] + 2 * distance_matrix[i-1, j] + distance_matrix[i, j] if (i-2>=0 and j-1>=0) else np.inf
-            p5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i-1, j] +     distance_matrix[i, j] if (i-3>=0 and j-1 >=0) else np.inf
+            p1 = acc_dist_matrix[i-1, j-3] + 2 * distance_matrix[i, j-2] + distance_matrix[i,
+                                                                                           j-1] + distance_matrix[i, j] if (i-1 >= 0 and j-3 >= 0) else np.inf
+            p2 = acc_dist_matrix[i-1, j-2] + 2 * distance_matrix[i, j-1] + \
+                distance_matrix[i, j] if (i-1 >= 0 and j-2 >= 0) else np.inf
+            p3 = acc_dist_matrix[i-1, j-1] + 2 * \
+                distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
+            p4 = acc_dist_matrix[i-2, j-1] + 2 * distance_matrix[i-1, j] + \
+                distance_matrix[i, j] if (i-2 >= 0 and j-1 >= 0) else np.inf
+            p5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i -
+                                                                                           1, j] + distance_matrix[i, j] if (i-3 >= 0 and j-1 >= 0) else np.inf
 
             return min(p1, p2, p3, p4, p5)
 
         if step_pattern == "symmetric1":
-            p1 = acc_dist_matrix[i, j-1] + distance_matrix[i, j] if (j-1>=0) else np.inf
-            p2 = acc_dist_matrix[i-1, j-1] + distance_matrix[i, j] if (i-1>=0 and j-1>=0) else np.inf
-            p3 = acc_dist_matrix[i-1, j] + distance_matrix[i, j] if (i-1>=0) else np.inf
+            p1 = acc_dist_matrix[i, j-1] + distance_matrix[i, j] if (j-1 >= 0) else np.inf
+            p2 = acc_dist_matrix[i-1, j-1] + distance_matrix[i,
+                                                             j] if (i-1 >= 0 and j-1 >= 0) else np.inf
+            p3 = acc_dist_matrix[i-1, j] + distance_matrix[i, j] if (i-1 >= 0) else np.inf
 
             return min(p1, p2, p3)
 
         if step_pattern == "symmetric2":
-            p1 = acc_dist_matrix[i, j-1] + distance_matrix[i, j] if (j-1>=0) else np.inf
-            p2 = acc_dist_matrix[i-1, j-1] + 2 * distance_matrix[i, j] if (i-1>=0 and j-1>=0) else np.inf
-            p3 = acc_dist_matrix[i-1, j] + distance_matrix[i, j] if (i-1>=0) else np.inf
+            p1 = acc_dist_matrix[i, j-1] + distance_matrix[i, j] if (j-1 >= 0) else np.inf
+            p2 = acc_dist_matrix[i-1, j-1] + 2 * \
+                distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
+            p3 = acc_dist_matrix[i-1, j] + distance_matrix[i, j] if (i-1 >= 0) else np.inf
 
             return min(p1, p2, p3)
 
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
             P = int(step_pattern[10:])
-            p1 = acc_dist_matrix[i-P, j-(P+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in np.arange(0, P)]) + distance_matrix[i, j] if (i-P>=0 and j-(P+1)>=0) else np.inf
-            p2 = acc_dist_matrix[i-1, j-1] + 2 * distance_matrix[i, j] if (i-1>=0 and j-1>=0) else np.inf
-            p3 = acc_dist_matrix[i-(P+1), j-P] + 2*sum([distance_matrix[i-(p+1), j-p] for p in np.arange(0, P)]) + distance_matrix[i, j] if (i-(P+1)>=0 and j-P>=0) else np.inf
+            p1 = acc_dist_matrix[i-P, j-(P+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in np.arange(
+                0, P)]) + distance_matrix[i, j] if (i-P >= 0 and j-(P+1) >= 0) else np.inf
+            p2 = acc_dist_matrix[i-1, j-1] + 2 * \
+                distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
+            p3 = acc_dist_matrix[i-(P+1), j-P] + 2*sum([distance_matrix[i-(p+1), j-p]
+                                                        for p in np.arange(0, P)]) + distance_matrix[i, j] if (i-(P+1) >= 0 and j-P >= 0) else np.inf
 
             return min(p1, p2, p3)
 
@@ -211,15 +230,18 @@ class dtw:
             i = N-1
             j = M-1
             while i != 0 or j != 0:
-                warpingPath.append((i,j))
+                warpingPath.append((i, j))
                 candidates = list()
-                if i > 0: candidates.append((acc_dist_matrix[i-1, j], (i-1,j)))
-                if j > 0: candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
-                if len(candidates) == 2: candidates.append((acc_dist_matrix[i-1,j-1], (i-1,j-1)))
+                if i > 0:
+                    candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
+                if j > 0:
+                    candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
+                if len(candidates) == 2:
+                    candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
                 nextStep = min(candidates)[1]
-                i,j = nextStep
-            warpingPath.append((0,0))
+                i, j = nextStep
+            warpingPath.append((0, 0))
 
             return warpingPath[::-1]
 
@@ -228,35 +250,44 @@ class dtw:
             #minDiag = 1
             i = N-1
             j = M-1
-            if np.isinf(acc_dist_matrix[i,j]):
+            if np.isinf(acc_dist_matrix[i, j]):
                 print("Invalid value for P, a global alignment is not possible with this local constraint")
                 return
-            hStep = 0 #horizontal step
-            vStep = 0 #vertical step
-            dStep = 0 #diagonal step
+            hStep = 0  # horizontal step
+            vStep = 0  # vertical step
+            dStep = 0  # diagonal step
 
             while i != 0 or j != 0:
-                warpingPath.append((i,j))
+                warpingPath.append((i, j))
                 candidates = list()
 
                 if hStep > 0:
                     if hStep == 1:
-                        if j > 0: candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
-                        if j > 0 and i > 0: candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
+                        if j > 0:
+                            candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
+                        if j > 0 and i > 0:
+                            candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
                     elif hStep == 2:
-                        if j > 0 and i > 0: candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
+                        if j > 0 and i > 0:
+                            candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
                 elif vStep > 0:
                     if vStep == 1:
-                        if i > 0: candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
-                        if j > 0 and i > 0: candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
+                        if i > 0:
+                            candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
+                        if j > 0 and i > 0:
+                            candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
                     elif vStep == 2:
-                        if j > 0 and i > 0: candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
+                        if j > 0 and i > 0:
+                            candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
                 else:
-                    if j > 0: candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
-                    if i > 0: candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
-                    if j > 0 and i > 0: candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
+                    if j > 0:
+                        candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
+                    if i > 0:
+                        candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
+                    if j > 0 and i > 0:
+                        candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
                 nextStep = min(candidates)[1]
                 v = nextStep[0] < i
@@ -266,39 +297,44 @@ class dtw:
                 if d:
                     vStep = 0
                     hStep = 0
-                elif v: vStep += 1
-                elif h: hStep += 1
+                elif v:
+                    vStep += 1
+                elif h:
+                    hStep += 1
 
-                i,j = nextStep
+                i, j = nextStep
 
-            warpingPath.append((0,0))
+            warpingPath.append((0, 0))
 
             return warpingPath[::-1]
-
 
         else:
             patt = re.compile("symmetricP[1-9]+\d*")
             if patt.match(step_pattern):
 
                 minDiagSteps = int(step_pattern[10:])
-                
+
                 wStep = 0
                 dStep = 0
                 i = N-1
                 j = M-1
-               
-                if np.isinf(acc_dist_matrix[i,j]):
+
+                if np.isinf(acc_dist_matrix[i, j]):
                     print("Invalid value for P, a global alignment is not possible with this local constraint")
                     return
-                
-                while i != 0  and j != 0:
-                    warpingPath.append((i,j))
+
+                while i != 0 and j != 0:
+                    warpingPath.append((i, j))
                     candidates = list()
-                    if wStep > 0: candidates.append((acc_dist_matrix[i-1,j-1], (i-1,j-1)))
+                    if wStep > 0:
+                        candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
                     else:
-                        if j > 0: candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
-                        if i > 0: candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
-                        if len(candidates) == 2: candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
+                        if j > 0:
+                            candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
+                        if i > 0:
+                            candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
+                        if len(candidates) == 2:
+                            candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
                     nextStep = min(candidates)[1]
                     v = nextStep[0] < i
@@ -319,13 +355,14 @@ class dtw:
 
                     i, j = nextStep
 
-                warpingPath.append((0,0))
+                warpingPath.append((0, 0))
 
                 return warpingPath[::-1]
 
-            else: print("Invalid step-pattern")
+            else:
+                print("Invalid step-pattern")
 
-    def CallDTW(self, queryID, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False, get_results = False):
+    def CallDTW(self, queryID, step_pattern="symmetricP05", dist_measure="euclidean", n_jobs=1, open_ended=False, get_results=False):
         """
         Calls the DTW method on the data stored in the .data attribute (needs only the queryID in addition to standard parameters)
         get_results if True returns the distance and the warping calculated; if False, only the .data attribute is updated
@@ -337,12 +374,13 @@ class dtw:
 
         self.data["warpings"][queryID] = result["warping"]
         self.data["distances"][queryID] = result["DTW_distance"]
-        self.data['time_distortion'][queryID] = self.TimeDistortion(result['warping'])
+        self.data['time_distortion'][step_pattern][queryID] = self.TimeDistortion(result['warping'])
+        self.data['distance_distortion'][step_pattern][queryID] = result["DTW_distance"]
 
         if get_results:
             return result
 
-    def DTW(self, referenceTS, queryTS, step_pattern = "symmetricP05", dist_measure = "euclidean", n_jobs = 1, open_ended = False):
+    def DTW(self, referenceTS, queryTS, step_pattern="symmetricP05", dist_measure="euclidean", n_jobs=1, open_ended=False):
         """
         Compute alignment betwwen referenceTS and queryTS (already in MVTS form).
         Separate from CallDTW() for testing purposes
@@ -353,11 +391,12 @@ class dtw:
             if patt.match(step_pattern):
                 P = int(step_pattern[step_pattern.index("P")+1:])
                 N, M = len(referenceTS), len(queryTS)
-                Pmax = np.floor(min(N,M)/np.abs(N-M)) if np.abs(N-M) > 0 else np.inf
+                Pmax = np.floor(min(N, M)/np.abs(N-M)) if np.abs(N-M) > 0 else np.inf
                 if P > Pmax:
                     print("Invalid value for P, a global alignment is not possible with this local constraint")
                     return
-            else: pass
+            else:
+                pass
 
         distanceMatrix = self.CompDistMatrix(referenceTS, queryTS, dist_measure, n_jobs)
 
@@ -365,7 +404,7 @@ class dtw:
 
         N, M = accDistMatrix.shape
         # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
-        if open_ended: 
+        if open_ended:
             N = self.GetRefPrefixLength(accDistMatrix)
 
         warping = self.GetWarpingPath(accDistMatrix, step_pattern, N, M)
@@ -380,9 +419,9 @@ class dtw:
         Computes the length of the reference prefix in case of open-ended alignment
         """
         # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
-        refPrefixLen = np.argmin(acc_dist_matrix[:, -1]) + 1 
+        refPrefixLen = np.argmin(acc_dist_matrix[:, -1]) + 1
         return refPrefixLen
-    
+
     def DistanceCostPlot(self, distance_matrix):
         """
         Draws a heatmap of distance_matrix, nan values are colored in green
@@ -390,8 +429,8 @@ class dtw:
         cmap = matplotlib.cm.inferno
         cmap.set_bad('green', .3)
         masked_array = np.ma.array(distance_matrix, mask=np.isnan(distance_matrix))
-        im = plt.imshow(masked_array, interpolation='nearest', cmap=cmap) 
-        
+        im = plt.imshow(masked_array, interpolation='nearest', cmap=cmap)
+
         #ax.imshow(masked_array, interpolation='nearest', cmap=cmap)
 
         plt.gca().invert_yaxis()
@@ -399,54 +438,54 @@ class dtw:
         plt.ylabel("Y")
         plt.grid()
         plt.colorbar()
-        
+
     def TimeDistortion(self, warping_path):
         T = len(warping_path)
         fq = [w[1] for w in warping_path]
         fr = [w[0] for w in warping_path]
-        
+
         td = [(fr[t+1] - fr[t])*(fq[t+1] - fq[t]) == 0 for t in np.arange(T-1)]
-        
+
         return sum(td)
-    
-    def AvgTimeDistortion(self):
-        if len(self.data['time_distortion']) != self.data['num_queries']:
+
+    def AvgTimeDistortion(self, step_pattern):
+        if len(self.data['time_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
             return
         else:
             I = self.data['num_queries']
-            avgTD = 1/I*sum(self.data['time_distortion'].values())
-            
+            avgTD = 1/I*sum(self.data['time_distortion'][step_pattern].values())
+
             return avgTD
-    
-    def AvgDistance(self):
-        if len(self.data['distances']) != self.data['num_queries']:
+
+    def AvgDistance(self, step_pattern):
+        if len(self.data['distance_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
             return
         else:
             I = self.data['num_queries']
-            avgDist = 1/I*sum(self.data['distances'].values())
-            
+            avgDist = 1/I*sum(self.data['distance_distortion'][step_pattern].values())
+
             return avgDist
-        
+
     def GetPmax(self, queryID):
         Kq = len(self.data['queries'][queryID][0]['values'])
         Kr = len(self.data['reference'][0]['values'])
-        Pmax = np.floor(min(Kq, Kr)/abs(Kq - Kr))  if abs(Kq - Kr) > 0 else Kr
+        Pmax = np.floor(min(Kq, Kr)/abs(Kq - Kr)) if abs(Kq - Kr) > 0 else Kr
         return Pmax
-    
+
     def GetGlobalPmax(self):
         Pmaxs = [self.GetPmax(queryID) for queryID in self.data['queriesID']]
         return int(min(Pmaxs))
-    
+
 # ADD DISTORTION, WARPING AND SO ON FOR EACH STEP PATTERN IN ORDER TO DON'T HAVE TO REPEAT THE CALCULATIONS EVERY TIME
-        
+
 
 def loadData(n_to_keep=50):
     data_path = "data/ope3_26.pickle"
     with open(data_path, "rb") as infile:
         data = pickle.load(infile)
-    
+
     opeLen = list()
     pvDataset = list()
     for _id, pvs in data.items():
@@ -455,28 +494,28 @@ def loadData(n_to_keep=50):
         for pv in pvs:
             pvList.append(pv['name'])
         pvDataset.append(pvList)
-    
+
     medLen = np.median([l for l, _id in opeLen])
-    
+
     # Select the N=50 closest to the median bacthes
     # center around the median
     centered = [(abs(l-medLen), _id) for l, _id in opeLen]
-    selected = sorted(centered)[:50]
-    
-    med_id = selected[0][1] #5153
-    
+    selected = sorted(centered)[:n_to_keep]
+
+    med_id = selected[0][1]  # 5153
+
     # pop batches without all pvs
     IDs = list(data.keys())
     for _id in IDs:
         L = len(data[_id])
         if L != 99:
             data.pop(_id)
-    
+
     allIDs = list(data.keys())
     for _id in allIDs:
         if _id not in [x[1] for x in selected]:
             _ = data.pop(_id)
-    
+
     data['reference'] = med_id
-    
+
     return data
