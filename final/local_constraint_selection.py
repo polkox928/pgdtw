@@ -54,7 +54,20 @@ distances = [res_scaled[step_pattern][0] for step_pattern in possible_step_patte
 distortions = [res_scaled[step_pattern][1] for step_pattern in possible_step_pattern]
 score = [np.sqrt(x**2 + y**2) for x,y in zip(distances, distortions)]
 x = np.arange(1, len (score)+1)
+fig = plt.figure(figsize = (12,5))
+fig.add_subplot(1,2,1)
 plt.plot(x, score)
 plt.xticks(x, possible_step_pattern, rotation = "vertical")
+plt.ylabel("Alignment score")
+
+fig.add_subplot(1,2,2)
+plt.plot(distances, distortions, '-o')
+plt.xlabel("Scaled distance")
+plt.ylabel("Scaled distortion")
+for x,y, label in zip(distances, distortions, possible_step_pattern):
+    plt.annotate(label[label.index('P'):], xy = (x, y))
+
 plt.show()
+
+
 
