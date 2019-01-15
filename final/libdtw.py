@@ -3,6 +3,8 @@ from sklearn.metrics.pairwise import pairwise_distances
 import re
 import matplotlib.pyplot as plt
 import matplotlib
+import pickle
+
 
 class dtw:
     def __init__(self, jsonObj = False):
@@ -34,7 +36,9 @@ class dtw:
                 "queries": queries,
                 "num_queries": len(queries),
                 "warpings" : dict(),
-                "distances": dict()}
+                "distances": dict(),
+                "queriesID": list(queries.keys()),
+                "time_distortion": dict()}
         
     def GetScalingParameters(self):
         """
@@ -333,6 +337,7 @@ class dtw:
 
         self.data["warpings"][queryID] = result["warping"]
         self.data["distances"][queryID] = result["DTW_distance"]
+        self.data['time_distortion'][queryID] = self.TimeDistortion(result['warping'])
 
         if get_results:
             return result
@@ -393,4 +398,85 @@ class dtw:
         plt.xlabel("X")
         plt.ylabel("Y")
         plt.grid()
-        plt.colorbar();
+        plt.colorbar()
+        
+    def TimeDistortion(self, warping_path):
+        T = len(warping_path)
+        fq = [w[1] for w in warping_path]
+        fr = [w[0] for w in warping_path]
+        
+        td = [(fr[t+1] - fr[t])*(fq[t+1] - fq[t]) == 0 for t in np.arange(T-1)]
+        
+        return sum(td)
+    
+    def AvgTimeDistortion(self):
+        if len(self.data['time_distortion']) != self.data['num_queries']:
+            print('Not every query aligned, align the remaining queries')
+            return
+        else:
+            I = self.data['num_queries']
+            avgTD = 1/I*sum(self.data['time_distortion'].values())
+            
+            return avgTD
+    
+    def AvgDistance(self):
+        if len(self.data['distances']) != self.data['num_queries']:
+            print('Not every query aligned, align the remaining queries')
+            return
+        else:
+            I = self.data['num_queries']
+            avgDist = 1/I*sum(self.data['distances'].values())
+            
+            return avgDist
+        
+    def GetPmax(self, queryID):
+        Kq = len(self.data['queries'][queryID][0]['values'])
+        Kr = len(self.data['reference'][0]['values'])
+        Pmax = np.floor(min(Kq, Kr)/abs(Kq - Kr))  if abs(Kq - Kr) > 0 else Kr
+        return Pmax
+    
+    def GetGlobalPmax(self):
+        Pmaxs = [self.GetPmax(queryID) for queryID in self.data['queriesID']]
+        return int(min(Pmaxs))
+    
+# ADD DISTORTION, WARPING AND SO ON FOR EACH STEP PATTERN IN ORDER TO DON'T HAVE TO REPEAT THE CALCULATIONS EVERY TIME
+        
+
+def loadData(n_to_keep=50):
+    data_path = "data/ope3_26.pickle"
+    with open(data_path, "rb") as infile:
+        data = pickle.load(infile)
+    
+    opeLen = list()
+    pvDataset = list()
+    for _id, pvs in data.items():
+        opeLen.append((len(pvs[0]['values']), _id))
+        pvList = list()
+        for pv in pvs:
+            pvList.append(pv['name'])
+        pvDataset.append(pvList)
+    
+    medLen = np.median([l for l, _id in opeLen])
+    
+    # Select the N=50 closest to the median bacthes
+    # center around the median
+    centered = [(abs(l-medLen), _id) for l, _id in opeLen]
+    selected = sorted(centered)[:50]
+    
+    med_id = selected[0][1] #5153
+    
+    # pop batches without all pvs
+    IDs = list(data.keys())
+    for _id in IDs:
+        L = len(data[_id])
+        if L != 99:
+            data.pop(_id)
+    
+    allIDs = list(data.keys())
+    for _id in allIDs:
+        if _id not in [x[1] for x in selected]:
+            _ = data.pop(_id)
+    
+    data['reference'] = med_id
+    
+    return data
