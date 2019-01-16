@@ -14,7 +14,7 @@ import libdtw as lib
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 50
+    N_DATA = 200
 
 try:
     with open('dtwObj%d.pickle' % N_DATA, 'rb') as f:
@@ -23,7 +23,7 @@ except OSError  as ex:
     DATA = lib.loadData(N_DATA)
     D = lib.Dtw(DATA)
 
-POSSIBLE_STEP_PATTERNS = ['symmetric2', 'symmetricP05']
+POSSIBLE_STEP_PATTERNS = ['symmetricP05']
 POSSIBLE_P_PATTERNS = ['symmetricP%s' % p for p in np.arange(1, D.GetGlobalPmax()+1)]
 
 POSSIBLE_STEP_PATTERNS.extend(POSSIBLE_P_PATTERNS)
