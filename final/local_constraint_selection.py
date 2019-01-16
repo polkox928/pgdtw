@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pickle
 from tqdm import tqdm
 import sys
+
 try:
     n_data = int(sys.argv[1])
 except:

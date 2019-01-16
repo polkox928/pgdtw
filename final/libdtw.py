@@ -131,8 +131,8 @@ class dtw:
         dist_measure: string indicating the local distance measure to be used. Must be allowed by pairwise_distances
         n_jobs: number of jobs for pairwise_distances function. It could cause problems on windows
         """
-        N, d1 = referenceTS.shape
-        M, d2 = queryTS.shape
+        _, d1 = referenceTS.shape
+        _, d2 = queryTS.shape
 
         if d1 != d2:
             print(
@@ -154,12 +154,12 @@ class dtw:
         step_pattern: string indicating the step pattern to be used. Can be symmetric1/2, symmetricP05 or symmetricPX, with X any positive integer
         """
         N, M = distance_matrix.shape
-        accDistMatrix = np.zeros((N, M))
+        accDistMatrix = np.empty((N, M))
 
         for i in np.arange(N):
             for j in np.arange(M):
                 accDistMatrix[i, j] = self.CompAccElement(
-                    i, j, accDistMatrix, distance_matrix, step_pattern)
+                    i, j, accDistMatrix, distance_matrix, step_pattern) if self.Itakura(i,j,N,M,step_pattern) else np.inf
 
         return accDistMatrix
 
@@ -477,11 +477,34 @@ class dtw:
     def GetGlobalPmax(self):
         Pmaxs = [self.GetPmax(queryID) for queryID in self.data['queriesID']]
         return int(min(Pmaxs))
-
-# ADD DISTORTION, WARPING AND SO ON FOR EACH STEP PATTERN IN ORDER TO DON'T HAVE TO REPEAT THE CALCULATIONS EVERY TIME
-
-# ADD ITAKURA PARALLELOGRAM CONSTRAINT TO TRY TO REDUCE COMPUTATIONAL TIME, BETTER TO CHECK DIFFERENT STRATEGIES TO IMPLEMENT THE SKIPPING OF CALCULATION
-
+    
+    def Itakura(self, i, j, N, M, step_pattern):
+        patt = re.compile("symmetricP[1-9]+\d*")
+        if step_pattern == "symmetricP05":
+            p = 1/2
+        elif patt.match(step_pattern):
+            p = int(step_pattern[step_pattern.index('P')+1:])
+        else: return True
+            
+        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and (i <= np.ceil(N+(j-M)*(p/(p+1)))) and (i >= np.floor(N+(j-M)*((p+1)/p)))
+        return inDomain
+    
+    def ExtremeItakura(self, i, j, N, M, step_pattern):
+        case = 0
+        patt = re.compile("symmetricP[1-9]+\d*")
+        if step_pattern == "symmetricP05":
+            p = 1/2
+        elif patt.match(step_pattern):
+            p = int(step_pattern[step_pattern.index('P')+1:])
+        else: return (case, True)
+        
+        if (i < np.floor(j*p/(p+1))) or (i < np.floor(N+(j-M)*((p+1)/p))):
+            case = 1
+            return (case, False)
+        
+        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and (i <= np.ceil(N+(j-M)*(p/(p+1)))) and (i >= np.floor(N+(j-M)*((p+1)/p)))
+        
+        return (case, inDomain)
 
 def loadData(n_to_keep=50):
     data_path = "data/ope3_26.pickle"
