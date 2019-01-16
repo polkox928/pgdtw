@@ -1,39 +1,46 @@
+"""
+dtw class and loadData function
+"""
+from collections import defaultdict
+import re
+import pickle
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
-import re
 import matplotlib.pyplot as plt
 import matplotlib
-import pickle
-from collections import defaultdict
 
 
-class dtw:
-    def __init__(self, jsonObj=False):
+class Dtw:
+    """
+    Everything related to DTW and experimentation
+    """
+    def __init__(self, json_obj=False):
         """
         Initialization of the class.
-        jsonObj: contains the data in the usual format
+        json_obj: contains the data in the usual format
         """
-        if not jsonObj:
+        if not json_obj:
             pass
         else:
-            self.data = self.ConvertDataFromJson(jsonObj)
-            self.scaleParams = self.GetScalingParameters()
-            self.RmvConstFeat()
+            self.data = self.convert_data_from_json(json_obj)
+            self.scale_params = self.get_scaling_parameters()
+            self.remove_const_feats()
 
-    def ConvertDataFromJson(self, jsonObj):
+    def convert_data_from_json(self, json_obj):
         """
         Returns a dictionary containing all the data, organized as:
-        refID: the ID of the reference batch
+        ref_id: the ID of the reference batch
         reference: reference batch in the usual format (list of dictionaries)
-        queries: list of dictionaries in which the keys are the query batch's ID and the values are the actual batches (list of dictionaries)
+        queries: list of dictionaries in which the keys are the query batch's ID and the values are
+        the actual batches (list of dictionaries)
         num_queries: number of query batches in the data set
         """
-        refID = jsonObj["reference"]
-        reference = jsonObj[refID]
-        queries = {key: batch for key, batch in jsonObj.items() if key !=
-                   "reference" and key != refID}
+        ref_id = json_obj["reference"]
+        reference = json_obj[ref_id]
+        queries = {key: batch for key, batch in json_obj.items() if key !=
+                   "reference" and key != ref_id}
 
-        return {"refID": refID,
+        return {"ref_id": ref_id,
                 "reference": reference,
                 "queries": queries,
                 "num_queries": len(queries),
@@ -43,115 +50,121 @@ class dtw:
                 "time_distortion": defaultdict(dict),
                 "distance_distortion": defaultdict(dict)}
 
-    def GetScalingParameters(self):
+    def get_scaling_parameters(self):
         """
-        Computes the parameters necessary for scaling the features as a 'group'. This means considering the mean range of a variable across al the data set.
-        This seems creating problems, since the distributions for the minimum and the maximum are too spread out. This method is here just in case of future use and to help removing non-informative (constant) features.
-        avgRange = [avgMin, avgMax]
+        Computes the parameters necessary for scaling the features as a 'group'.
+        This means considering the mean range of a variable across al the data set.
+        This seems creating problems, since the distributions for the minimum and the
+        maximum are too spread out. This method is here just in case of future use and to help
+        removing non-informative (constant) features.
+        avg_range = [avg_min, avg_max]
         """
-        scaleParams = dict()
+        scale_params = dict()
 
-        for pv in self.data['reference']:
-            pvName = pv['name']
-            pvMin = min(pv['values'])
-            pvMax = max(pv['values'])
+        for pv_dict in self.data['reference']:
+            pv_name = pv_dict['name']
+            pv_min = min(pv_dict['values'])
+            pv_max = max(pv_dict['values'])
 
-            scaleParams[pvName] = [[pvMin], [pvMax]]
+            scale_params[pv_name] = [[pv_min], [pv_max]]
 
         for _id, batch in self.data['queries'].items():
-            for pv in batch:
-                pvName = pv['name']
-                pvMin = min(pv['values'])
-                pvMax = max(pv['values'])
+            for pv_dict in batch:
+                pv_name = pv_dict['name']
+                pv_min = min(pv_dict['values'])
+                pv_max = max(pv_dict['values'])
 
-                scaleParams[pvName][0].append(pvMin)
-                scaleParams[pvName][1].append(pvMax)
+                scale_params[pv_name][0].append(pv_min)
+                scale_params[pv_name][1].append(pv_max)
 
-        pvNames = scaleParams.keys()
-        for pv in pvNames:
-            scaleParams[pv] = np.median(scaleParams[pv], axis=1)
+        pv_names = scale_params.keys()
+        for pv_name in pv_names:
+            scale_params[pv_name] = np.median(scale_params[pv_name], axis=1)
 
-        return scaleParams
+        return scale_params
 
-    def RmvConstFeat(self):
+    def remove_const_feats(self):
         """
         Removes non-informative features (features with low variability)
         """
-        constFeats = list()
-        for pvName, avgRange in self.scaleParams.items():
-            if abs(avgRange[0]-avgRange[1]) < 1e-6:
-                constFeats.append(pvName)
+        const_feats = list()
+        for pv_name, avg_range in self.scale_params.items():
+            if abs(avg_range[0]-avg_range[1]) < 1e-6:
+                const_feats.append(pv_name)
 
-        IDs = list(self.data['queries'].keys())
-        for _id in IDs:
-            self.data['queries'][_id] = [pv for pv in self.data['queries']
-                                         [_id] if pv['name'] not in constFeats]
+        ids = list(self.data['queries'].keys())
+        for _id in ids:
+            self.data['queries'][_id] = [pv_dict for pv_dict in self.data['queries']
+                                         [_id] if pv_dict['name'] not in const_feats]
 
-        self.data['reference'] = [pv for pv in self.data['reference']
-                                  if pv['name'] not in constFeats]
+        self.data['reference'] = [pv_dict for pv_dict in self.data['reference']
+                                  if pv_dict['name'] not in const_feats]
 
-    def ScalePV(self, pv_name, pv_values, mode="single"):
+    def scale_pv(self, pv_name, pv_values, mode="single"):
         """
         Scales features in two possible ways:
             'single': the feature is scaled according to the values it assumes in the current batch
             'group': the feature is scaled according to its average range across the whole data set
         """
         if mode == "single":
-            minPV = min(pv_values)
-            maxPV = max(pv_values)
-            if abs(maxPV-minPV) > 1e-6:
-                scaledPvValues = (np.array(pv_values)-minPV)/(maxPV-minPV)
+            pv_min = min(pv_values)
+            pv_max = max(pv_values)
+            if abs(pv_max-pv_min) > 1e-6:
+                scaled_pv_values = (np.array(pv_values)-pv_min)/(pv_max-pv_min)
             else:
-                scaledPvValues = .5 * np.ones(len(pv_values))
+                scaled_pv_values = .5 * np.ones(len(pv_values))
         elif mode == "group":
-            avgMin, avgMax = self.scaleParams[pv_name]
-            scaledPvValues = (np.array(pv_values)-avgMin)/(avgMax-avgMin)
-        return scaledPvValues
+            avg_min, avg_max = self.scale_params[pv_name]
+            scaled_pv_values = (np.array(pv_values)-avg_min)/(avg_max-avg_min)
+        return scaled_pv_values
 
-    def ConvertToMVTS(self, batch):     # MVTS = Multi Variate Time Series
+    def convert_to_mvts(self, batch):     # MVTS = Multi Variate Time Series
         """
-        Takes one batch in the usual form (list of one dictionary per PV) and transforms it to a numpy array to perform calculations faster
+        Takes one batch in the usual form (list of one dictionary per PV) and transforms
+        it to a numpy array to perform calculations faster
         """
-        L = len(batch[0]['values'])  # Length of a batch (number of data points per single PV)
+        k = len(batch[0]['values'])  # Length of a batch (number of data points per single PV)
         d = len(batch)  # Number of PVs
 
-        MVTS = np.zeros((L, d))
+        MVTS = np.zeros((k, d))
 
-        for (i, pv) in zip(np.arange(d), batch):
-            MVTS[:, i] = self.ScalePV(pv['name'], pv['values'], "single")
+        for (i, pv_dict) in zip(np.arange(d), batch):
+            MVTS[:, i] = self.scale_pv(pv_dict['name'], pv_dict['values'], "single")
 
         return MVTS
 
     def CompDistMatrix(self, referenceTS, queryTS, dist_measure="euclidean", n_jobs=1):
         """
-        Computes the distance matrix with N (length of the reference) number of rows and M (length of the query) number of columns (OK with convention on indices in DTW) with dist_measure as local distance measure
+        Computes the distance matrix with N (length of the reference) number of rows and M (length
+        of the query) number of columns (OK with convention on indices in DTW) with dist_measure as
+        local distance measure
 
         referenceTS: MVTS representation of reference batch
         queryTS: MVTS representation of query batch
-        dist_measure: string indicating the local distance measure to be used. Must be allowed by pairwise_distances
+        dist_measure: string indicating the local distance measure to be used.
+                        Must be allowed by pairwise_distances
         n_jobs: number of jobs for pairwise_distances function. It could cause problems on windows
         """
         _, d1 = referenceTS.shape
         _, d2 = queryTS.shape
 
         if d1 != d2:
-            print(
-                "Number of features not coherent between reference ({0}) and query ({1})".format(d1, d2))
+            print("Number of features not coherent between reference ({0}) and query ({1})"\
+                                                                                  .format(d1, d2))
             return
-
-        # d = d1  # d = dimensionality/number of features/PVs
 
         distanceMatrix = pairwise_distances(
             X=referenceTS, Y=queryTS, metric=dist_measure, n_jobs=n_jobs)
 
         return distanceMatrix
-        #self.AccumulatedDistanceComputation(step_pattern = "symmetric2")
 
     def CompAccDistMatrix(self, distance_matrix, step_pattern='symmetricP05'):
         """
-        Computes the accumulated distance matrix starting from the distance_matrix according to the step_pattern indicated
+        Computes the accumulated distance matrix starting from the distance_matrix according to the
+        step_pattern indicated
         distance_matrix: cross distance matrix
-        step_pattern: string indicating the step pattern to be used. Can be symmetric1/2, symmetricP05 or symmetricPX, with X any positive integer
+        step_pattern: string indicating the step pattern to be used. Can be symmetric1/2,
+        symmetricP05 or symmetricPX, with X any positive integer
         """
         N, M = distance_matrix.shape
         accDistMatrix = np.empty((N, M))
@@ -159,7 +172,8 @@ class dtw:
         for i in np.arange(N):
             for j in np.arange(M):
                 accDistMatrix[i, j] = self.CompAccElement(
-                    i, j, accDistMatrix, distance_matrix, step_pattern) if self.Itakura(i,j,N,M,step_pattern) else np.inf
+                    i, j, accDistMatrix, distance_matrix, step_pattern)\
+                                            if self.Itakura(i, j, N, M, step_pattern) else np.inf
 
         return accDistMatrix
 
@@ -177,23 +191,23 @@ class dtw:
 
         if step_pattern == "symmetricP05":
 
-            p1 = acc_dist_matrix[i-1, j-3] + 2 * distance_matrix[i, j-2] + distance_matrix[i,
-                                                                                           j-1] + distance_matrix[i, j] if (i-1 >= 0 and j-3 >= 0) else np.inf
+            p1 = acc_dist_matrix[i-1, j-3] + 2 * distance_matrix[i, j-2] + distance_matrix[i, j-1] \
+                + distance_matrix[i, j] if (i-1 >= 0 and j-3 >= 0) else np.inf
             p2 = acc_dist_matrix[i-1, j-2] + 2 * distance_matrix[i, j-1] + \
                 distance_matrix[i, j] if (i-1 >= 0 and j-2 >= 0) else np.inf
             p3 = acc_dist_matrix[i-1, j-1] + 2 * \
                 distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
             p4 = acc_dist_matrix[i-2, j-1] + 2 * distance_matrix[i-1, j] + \
                 distance_matrix[i, j] if (i-2 >= 0 and j-1 >= 0) else np.inf
-            p5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i -
-                                                                                           1, j] + distance_matrix[i, j] if (i-3 >= 0 and j-1 >= 0) else np.inf
+            p5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i-1, j] \
+                + distance_matrix[i, j] if (i-3 >= 0 and j-1 >= 0) else np.inf
 
             return min(p1, p2, p3, p4, p5)
 
         if step_pattern == "symmetric1":
             p1 = acc_dist_matrix[i, j-1] + distance_matrix[i, j] if (j-1 >= 0) else np.inf
-            p2 = acc_dist_matrix[i-1, j-1] + distance_matrix[i,
-                                                             j] if (i-1 >= 0 and j-1 >= 0) else np.inf
+            p2 = acc_dist_matrix[i-1, j-1] + distance_matrix[i, j]\
+                                                            if (i-1 >= 0 and j-1 >= 0) else np.inf
             p3 = acc_dist_matrix[i-1, j] + distance_matrix[i, j] if (i-1 >= 0) else np.inf
 
             return min(p1, p2, p3)
@@ -209,18 +223,21 @@ class dtw:
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
             P = int(step_pattern[10:])
-            p1 = acc_dist_matrix[i-P, j-(P+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in np.arange(
-                0, P)]) + distance_matrix[i, j] if (i-P >= 0 and j-(P+1) >= 0) else np.inf
-            p2 = acc_dist_matrix[i-1, j-1] + 2 * \
-                distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
-            p3 = acc_dist_matrix[i-(P+1), j-P] + 2*sum([distance_matrix[i-(p+1), j-p]
-                                                        for p in np.arange(0, P)]) + distance_matrix[i, j] if (i-(P+1) >= 0 and j-P >= 0) else np.inf
+            p1 = acc_dist_matrix[i-P, j-(P+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in\
+                np.arange(0, P)]) + distance_matrix[i, j] if (i-P >= 0 and j-(P+1) >= 0) else np.inf
+            p2 = acc_dist_matrix[i-1, j-1] + \
+                                    2 * distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
+            p3 = acc_dist_matrix[i-(P+1), j-P] + 2*sum([distance_matrix[i-(p+1), j-p] \
+                                        for p in np.arange(0, P)]) + distance_matrix[i, j] \
+                                                                if (i-(P+1) >= 0 and j-P >= 0) \
+                                                                                        else np.inf
 
             return min(p1, p2, p3)
 
     def GetWarpingPath(self, acc_dist_matrix, step_pattern, N, M):
         """
-        Computes the warping path on the acc_dist_matrix induced by step_pattern starting from the (N,M) point (this in order to use the method in both open_ended and global alignment)
+        Computes the warping path on the acc_dist_matrix induced by step_pattern starting from
+        the (N,M) point (this in order to use the method in both open_ended and global alignment)
         Return the warping path (list of tuples) in ascending order
         """
         #N, M = acc_dist_matrix.shape
@@ -251,7 +268,8 @@ class dtw:
             i = N-1
             j = M-1
             if np.isinf(acc_dist_matrix[i, j]):
-                print("Invalid value for P, a global alignment is not possible with this local constraint")
+                print("Invalid value for P, \
+                      a global alignment is not possible with this local constraint")
                 return
             hStep = 0  # horizontal step
             vStep = 0  # vertical step
@@ -320,7 +338,8 @@ class dtw:
                 j = M-1
 
                 if np.isinf(acc_dist_matrix[i, j]):
-                    print("Invalid value for P, a global alignment is not possible with this local constraint")
+                    print("Invalid value for P, \
+                          a global alignment is not possible with this local constraint")
                     return
 
                 while i != 0 and j != 0:
@@ -362,13 +381,16 @@ class dtw:
             else:
                 print("Invalid step-pattern")
 
-    def CallDTW(self, queryID, step_pattern="symmetricP05", dist_measure="euclidean", n_jobs=1, open_ended=False, get_results=False):
+    def CallDTW(self, queryID, step_pattern="symmetricP05", dist_measure="euclidean",\
+                                                    n_jobs=1, open_ended=False, get_results=False):
         """
-        Calls the DTW method on the data stored in the .data attribute (needs only the queryID in addition to standard parameters)
-        get_results if True returns the distance and the warping calculated; if False, only the .data attribute is updated
+        Calls the DTW method on the data stored in the .data attribute (needs only the queryID in \
+        addition to standard parameters)
+        get_results if True returns the distance and the warping calculated; if False, \
+        only the .data attribute is updated
         """
-        referenceTS = self.ConvertToMVTS(self.data['reference'])
-        queryTS = self.ConvertToMVTS(self.data['queries'][queryID])
+        referenceTS = self.convert_to_mvts(self.data['reference'])
+        queryTS = self.convert_to_mvts(self.data['queries'][queryID])
 
         result = self.DTW(referenceTS, queryTS, step_pattern, dist_measure, n_jobs, open_ended)
 
@@ -380,12 +402,14 @@ class dtw:
         if get_results:
             return result
 
-    def DTW(self, referenceTS, queryTS, step_pattern="symmetricP05", dist_measure="euclidean", n_jobs=1, open_ended=False):
+    def DTW(self, referenceTS, queryTS, step_pattern="symmetricP05", dist_measure="euclidean",\
+                                                                        n_jobs=1, open_ended=False):
         """
         Compute alignment betwwen referenceTS and queryTS (already in MVTS form).
         Separate from CallDTW() for testing purposes
         """
-        # Check for coherence of local constraint and global alignment (in case a PX local constraint is used)
+        # Check for coherence of local constraint and global alignment
+        # (in case a PX local constraint is used)
         if not open_ended:
             patt = re.compile("symmetricP[1-9]+\d*")
             if patt.match(step_pattern):
@@ -393,7 +417,8 @@ class dtw:
                 N, M = len(referenceTS), len(queryTS)
                 Pmax = np.floor(min(N, M)/np.abs(N-M)) if np.abs(N-M) > 0 else np.inf
                 if P > Pmax:
-                    print("Invalid value for P, a global alignment is not possible with this local constraint")
+                    print("Invalid value for P, \
+                                  a global alignment is not possible with this local constraint")
                     return
             else:
                 pass
@@ -403,7 +428,8 @@ class dtw:
         accDistMatrix = self.CompAccDistMatrix(distanceMatrix, step_pattern)
 
         N, M = accDistMatrix.shape
-        # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
+        # In case of open-ended version
+        # correctly identifies the starting point on the reference batch for warping
         if open_ended:
             N = self.GetRefPrefixLength(accDistMatrix)
 
@@ -418,7 +444,8 @@ class dtw:
         """
         Computes the length of the reference prefix in case of open-ended alignment
         """
-        # In case of open-ended version, correctly identifies the starting point on the reference batch for warping
+        # In case of open-ended version
+        # correctly identifies the starting point on the reference batch for warping
         refPrefixLen = np.argmin(acc_dist_matrix[:, -1]) + 1
         return refPrefixLen
 
@@ -477,7 +504,7 @@ class dtw:
     def GetGlobalPmax(self):
         Pmaxs = [self.GetPmax(queryID) for queryID in self.data['queriesID']]
         return int(min(Pmaxs))
-    
+
     def Itakura(self, i, j, N, M, step_pattern):
         patt = re.compile("symmetricP[1-9]+\d*")
         if step_pattern == "symmetricP05":
@@ -485,10 +512,11 @@ class dtw:
         elif patt.match(step_pattern):
             p = int(step_pattern[step_pattern.index('P')+1:])
         else: return True
-            
-        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and (i <= np.ceil(N+(j-M)*(p/(p+1)))) and (i >= np.floor(N+(j-M)*((p+1)/p)))
+
+        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and \
+                    (i <= np.ceil(N+(j-M)*(p/(p+1)))) and (i >= np.floor(N+(j-M)*((p+1)/p)))
         return inDomain
-    
+
     def ExtremeItakura(self, i, j, N, M, step_pattern):
         case = 0
         patt = re.compile("symmetricP[1-9]+\d*")
@@ -497,15 +525,17 @@ class dtw:
         elif patt.match(step_pattern):
             p = int(step_pattern[step_pattern.index('P')+1:])
         else: return (case, True)
-        
+
         if (i < np.floor(j*p/(p+1))) or (i < np.floor(N+(j-M)*((p+1)/p))):
             case = 1
             return (case, False)
-        
-        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and (i <= np.ceil(N+(j-M)*(p/(p+1)))) and (i >= np.floor(N+(j-M)*((p+1)/p)))
-        
+
+        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and \
+        (i <= np.ceil(N+(j-M)*(p/(p+1)))) and (i >= np.floor(N+(j-M)*((p+1)/p)))
+
         return (case, inDomain)
 
+# ADD CONDITION ON ALIGNMENT ALREADY PERFORMED
 def loadData(n_to_keep=50):
     data_path = "data/ope3_26.pickle"
     with open(data_path, "rb") as infile:
@@ -516,8 +546,8 @@ def loadData(n_to_keep=50):
     for _id, pvs in data.items():
         opeLen.append((len(pvs[0]['values']), _id))
         pvList = list()
-        for pv in pvs:
-            pvList.append(pv['name'])
+        for pv_dict in pvs:
+            pvList.append(pv_dict['name'])
         pvDataset.append(pvList)
 
     medLen = np.median([l for l, _id in opeLen])
@@ -530,10 +560,10 @@ def loadData(n_to_keep=50):
     med_id = selected[0][1]  # 5153
 
     # pop batches without all pvs
-    IDs = list(data.keys())
-    for _id in IDs:
-        L = len(data[_id])
-        if L != 99:
+    ids = list(data.keys())
+    for _id in ids:
+        k = len(data[_id])
+        if k != 99:
             data.pop(_id)
 
     allIDs = list(data.keys())
