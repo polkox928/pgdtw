@@ -20,7 +20,7 @@ try:
     with open('dtwObj%d.pickle' % N_DATA, 'rb') as f:
         D = pickle.load(f)
 except OSError  as ex:
-    DATA = lib.loadData(N_DATA)
+    DATA = lib.load_data(N_DATA)
     D = lib.Dtw(DATA)
 
 POSSIBLE_STEP_PATTERNS = ['symmetricP05']
@@ -33,9 +33,9 @@ RES = defaultdict(list)
 for step_pattern in POSSIBLE_STEP_PATTERNS[::-1]:
     print(step_pattern)
     for _id in tqdm(D.data['queriesID']):
-        D.CallDTW(_id, step_pattern=step_pattern, n_jobs=1)
+        D.call_dtw(_id, step_pattern=step_pattern, n_jobs=1)
 
-    RES[step_pattern].append(D.AvgTimeDistortion(step_pattern))
+    RES[step_pattern].append(D.avg_time_distortion(step_pattern))
     RES[step_pattern].append(D.AvgDistance(step_pattern))
 # %%
     # pickle D object

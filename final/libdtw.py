@@ -1,5 +1,5 @@
 """
-dtw class and loadData function
+dtw class and load_data function
 """
 from collections import defaultdict
 import re
@@ -9,12 +9,15 @@ from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
 import matplotlib
+from tqdm import tqdm
+from joblib import Parallel, delayed
+import multiprocessing
 
 
 
 class Dtw:
     """
-    Everything related to DTW and experimentation
+    Everything related to dtw and experimentation
     """
     def __init__(self, json_obj=False):
         """
@@ -27,6 +30,7 @@ class Dtw:
             self.data = self.convert_data_from_json(json_obj)
             self.scale_params = self.get_scaling_parameters()
             self.remove_const_feats()
+            self.initialize_weigths()
 
     def convert_data_from_json(self, json_obj):
         """
@@ -51,7 +55,8 @@ class Dtw:
                 "queriesID": list(queries.keys()),
                 "time_distortion": defaultdict(dict),
                 "distance_distortion": defaultdict(dict),
-                'warpings_per_step_pattern': defaultdict(dict)}
+                'warpings_per_step_pattern': defaultdict(dict),
+                'feat_weights': 1.0}
 
     def get_scaling_parameters(self):
         """
@@ -136,10 +141,10 @@ class Dtw:
 
         return mvts
 
-    def comp_dist_matrix(self, reference_ts, query_ts, w=1.0, n_jobs=1):
+    def comp_dist_matrix(self, reference_ts, query_ts, n_jobs=1):
         """
         Computes the distance matrix with ref_len (length of the reference) number of rows and
-        query_len (length of the query) number of columns (OK with convention on indices in DTW)
+        query_len (length of the query) number of columns (OK with convention on indices in dtw)
         with dist_measure as local distance measure
 
         reference_ts: mvts representation of reference batch
@@ -156,7 +161,8 @@ class Dtw:
             return
 
         distance_matrix = pairwise_distances(
-            X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs, w=w)
+            X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs,\
+                                                                        w=self.data['feat_weights'])
 
         return distance_matrix
 
@@ -175,7 +181,7 @@ class Dtw:
             for j in np.arange(query_len):
                 acc_dist_matrix[i, j] = self.comp_acc_element(
                     i, j, acc_dist_matrix, distance_matrix, step_pattern)\
-                            if self.Itakura(i, j, ref_len, query_len, step_pattern) else np.inf
+                            if self.itakura(i, j, ref_len, query_len, step_pattern) else np.inf
 
         return acc_dist_matrix
 
@@ -204,7 +210,7 @@ class Dtw:
             p_5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i-1, j]\
                 + distance_matrix[i, j] if (i-3 >= 0 and j-1 >= 0) else np.inf
 
-            return min(p_1, p_2, p_3, p_4, p_5)
+            return min(p_1, p_2, p_3, p_4, p_5)#/sum(acc_dist_matrix.shape)
 
         if step_pattern == "symmetric1":
             p_1 = acc_dist_matrix[i, j-1] + distance_matrix[i, j] if (j-1 >= 0) else np.inf
@@ -220,7 +226,7 @@ class Dtw:
                 distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
             p_3 = acc_dist_matrix[i-1, j] + distance_matrix[i, j] if (i-1 >= 0) else np.inf
 
-            return min(p_1, p_2, p_3)
+            return min(p_1, p_2, p_3)#/sum(acc_dist_matrix.shape)
 
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
@@ -234,7 +240,7 @@ class Dtw:
                                                                 if (i-(p+1) >= 0 and j-p >= 0) \
                                                                                         else np.inf
 
-            return min(p_1, p_2, p_3)
+            return min(p_1, p_2, p_3)#/sum(acc_dist_matrix.shape)
 
     def get_warping_path(self, acc_dist_matrix, step_pattern, ref_len, query_len):
         """
@@ -270,7 +276,8 @@ class Dtw:
             #minDiag = 1
             i = ref_len-1
             j = query_len-1
-            if np.isinf(acc_dist_matrix[i, j]):
+
+            if np.isnan(acc_dist_matrix[i, j]):
                 print("Invalid value for P, \
                       a global alignment is not possible with this local constraint")
                 return
@@ -333,9 +340,9 @@ class Dtw:
             patt = re.compile("symmetricP[1-9]+\d*")
             if patt.match(step_pattern):
 
-                minDiagSteps = int(step_pattern[10:])
+                min_diag_steps = int(step_pattern[10:])
 
-                wStep = 0
+                warp_step = 0
                 d_step = 0
                 i = ref_len-1
                 j = query_len-1
@@ -348,7 +355,7 @@ class Dtw:
                 while i != 0 and j != 0:
                     warping_path.append((i, j))
                     candidates = list()
-                    if wStep > 0:
+                    if warp_step > 0:
                         candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
                     else:
                         if j > 0:
@@ -365,15 +372,15 @@ class Dtw:
 
                     if d:
                         d_step += 1
-                        if d_step == minDiagSteps:
+                        if d_step == min_diag_steps:
                             d_step = 0
-                            wStep = 0
-                        elif d_step < minDiagSteps and wStep > 0:
+                            warp_step = 0
+                        elif d_step < min_diag_steps and warp_step > 0:
                             pass
-                        elif d_step < minDiagSteps and wStep == 0:
+                        elif d_step < min_diag_steps and warp_step == 0:
                             d_step = 0
                     else:
-                        wStep += 1
+                        warp_step += 1
 
                     i, j = next_step
 
@@ -384,37 +391,38 @@ class Dtw:
             else:
                 print("Invalid step-pattern")
 
-    def CallDTW(self, queryID, step_pattern="symmetricP05", \
+    def call_dtw(self, query_id, step_pattern="symmetricP05", \
                                                     n_jobs=1, open_ended=False, get_results=False):
         """
-        Calls the DTW method on the data stored in the .data attribute (needs only the queryID in \
+        Calls the dtw method on the data stored in the .data attribute (needs only the query_id in \
         addition to standard parameters)
         get_results if True returns the distance and the warping calculated; if False, \
         only the .data attribute is updated
         """
         if step_pattern in self.data['warpings_per_step_pattern']:
-            if queryID in self.data['warpings_per_step_pattern'][step_pattern]:
+            if query_id in self.data['warpings_per_step_pattern'][step_pattern]:
                 return
 
         reference_ts = self.convert_to_mvts(self.data['reference'])
-        query_ts = self.convert_to_mvts(self.data['queries'][queryID])
+        query_ts = self.convert_to_mvts(self.data['queries'][query_id])
 
-        result = self.DTW(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
+        result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
 
-        self.data["warpings"][queryID] = result["warping"]
-        self.data["distances"][queryID] = result["DTW_distance"]
-        self.data['time_distortion'][step_pattern][queryID] = self.TimeDistortion(result['warping'])
-        self.data['distance_distortion'][step_pattern][queryID] = result["DTW_distance"]
-        self.data['warpings_per_step_pattern'][step_pattern][queryID] = result['warping']
+        self.data["warpings"][query_id] = result["warping"]
+        self.data["distances"][query_id] = result["DTW_distance"]
+        self.data['time_distortion'][step_pattern][query_id] = \
+                                                            self.time_distortion(result['warping'])
+        self.data['distance_distortion'][step_pattern][query_id] = result["DTW_distance"]
+        self.data['warpings_per_step_pattern'][step_pattern][query_id] = result['warping']
 
         if get_results:
             return result
 
-    def DTW(self, reference_ts, query_ts, step_pattern="symmetricP05",\
+    def dtw(self, reference_ts, query_ts, step_pattern="symmetricP05",\
                                                                         n_jobs=1, open_ended=False):
         """
         Compute alignment betwwen reference_ts and query_ts (already in mvts form).
-        Separate from CallDTW() for testing purposes
+        Separate from call_dtw() for testing purposes
         """
         # Check for coherence of local constraint and global alignment
         # (in case a PX local constraint is used)
@@ -423,9 +431,9 @@ class Dtw:
             if patt.match(step_pattern):
                 p = int(step_pattern[step_pattern.index("P")+1:])
                 ref_len, query_len = len(reference_ts), len(query_ts)
-                Pmax = np.floor(min(ref_len, query_len)/np.abs(ref_len-query_len)) \
+                p_max = np.floor(min(ref_len, query_len)/np.abs(ref_len-query_len)) \
                                                     if np.abs(ref_len-query_len) > 0 else np.inf
-                if p > Pmax:
+                if p > p_max:
                     print("Invalid value for P, \
                                   a global alignment is not possible with this local constraint")
                     return
@@ -440,32 +448,32 @@ class Dtw:
         # In case of open-ended version
         # correctly identifies the starting point on the reference batch for warping
         if open_ended:
-            ref_len = self.GetRefPrefixLength(acc_dist_matrix)
+            ref_len = self.get_ref_prefix_length(acc_dist_matrix)
 
         warping = self.get_warping_path(acc_dist_matrix, step_pattern, ref_len, query_len)
 
-        dtwDist = acc_dist_matrix[ref_len-1, query_len-1]
+        dtw_dist = acc_dist_matrix[ref_len-1, query_len-1]
 
         return {"warping": warping,
-                "DTW_distance": dtwDist}
+                "DTW_distance": dtw_dist}
 
-    def GetRefPrefixLength(self, acc_dist_matrix):
+    def get_ref_prefix_length(self, acc_dist_matrix):
         """
         Computes the length of the reference prefix in case of open-ended alignment
         """
         # In case of open-ended version
         # correctly identifies the starting point on the reference batch for warping
-        refPrefixLen = np.argmin(acc_dist_matrix[:, -1]) + 1
-        return refPrefixLen
+        ref_prefix_len = np.argmin(acc_dist_matrix[:, -1]) + 1
+        return ref_prefix_len
 
-    def DistanceCostPlot(self, distance_matrix):
+    def distance_cost_plot(self, distance_matrix):
         """
         Draws a heatmap of distance_matrix, nan values are colored in green
         """
         cmap = matplotlib.cm.inferno
         cmap.set_bad('green', .3)
         masked_array = np.ma.array(distance_matrix, mask=np.isnan(distance_matrix))
-        im = plt.imshow(masked_array, interpolation='nearest', cmap=cmap)
+        img = plt.imshow(masked_array, interpolation='nearest', cmap=cmap)
 
         #ax.imshow(masked_array, interpolation='nearest', cmap=cmap)
 
@@ -475,16 +483,19 @@ class Dtw:
         plt.grid()
         plt.colorbar()
 
-    def TimeDistortion(self, warping_path):
+    def time_distortion(self, warping_path):
+        """
+        Computes the time distortion caused by warping_path
+        """
         T = len(warping_path)
-        fq = [w[1] for w in warping_path]
-        fr = [w[0] for w in warping_path]
+        f_q = [w[1] for w in warping_path]
+        f_r = [w[0] for w in warping_path]
 
-        td = [(fr[t+1] - fr[t])*(fq[t+1] - fq[t]) == 0 for t in np.arange(T-1)]
+        t_d = [(f_r[t+1] - f_r[t])*(f_q[t+1] - f_q[t]) == 0 for t in np.arange(T-1)]
 
-        return sum(td)
+        return sum(t_d)
 
-    def AvgTimeDistortion(self, step_pattern):
+    def avg_time_distortion(self, step_pattern):
         if len(self.data['time_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
             return
@@ -504,17 +515,17 @@ class Dtw:
 
             return avgDist
 
-    def GetPmax(self, queryID):
-        Kq = len(self.data['queries'][queryID][0]['values'])
+    def GetPmax(self, query_id):
+        Kq = len(self.data['queries'][query_id][0]['values'])
         Kr = len(self.data['reference'][0]['values'])
-        Pmax = np.floor(min(Kq, Kr)/abs(Kq - Kr)) if abs(Kq - Kr) > 0 else Kr
-        return Pmax
+        p_max = np.floor(min(Kq, Kr)/abs(Kq - Kr)) if abs(Kq - Kr) > 0 else Kr
+        return p_max
 
     def GetGlobalPmax(self):
-        Pmaxs = [self.GetPmax(queryID) for queryID in self.data['queriesID']]
-        return int(min(Pmaxs))
+        p_maxs = [self.GetPmax(query_id) for query_id in self.data['queriesID']]
+        return int(min(p_maxs))
 
-    def Itakura(self, i, j, ref_len, query_len, step_pattern):
+    def itakura(self, i, j, ref_len, query_len, step_pattern):
         patt = re.compile("symmetricP[1-9]+\d*")
         if step_pattern == "symmetricP05":
             p = 1/2
@@ -522,13 +533,16 @@ class Dtw:
             p = int(step_pattern[step_pattern.index('P')+1:])
         else: return True
 
-        inDomain = (i >= np.floor(j*p/(p+1))) and \
+        in_domain = (i >= np.floor(j*p/(p+1))) and \
                     (i <= np.ceil(j*(p+1)/p)) and \
                     (i <= np.ceil(ref_len+(j-query_len)*(p/(p+1)))) and \
                     (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
-        return inDomain
+        return in_domain
 
-    def ExtremeItakura(self, i, j, ref_len, query_len, step_pattern):
+    def extreme_itakura(self, i, j, ref_len, query_len, step_pattern):
+        """
+        Alternative implementation of itakura method
+        """
         case = 0
         patt = re.compile("symmetricP[1-9]+\d*")
         if step_pattern == "symmetricP05":
@@ -541,33 +555,114 @@ class Dtw:
             case = 1
             return (case, False)
 
-        inDomain = (i >= np.floor(j*p/(p+1))) and \
+        in_domain = (i >= np.floor(j*p/(p+1))) and \
                     (i <= np.ceil(j*(p+1)/p)) and \
                     (i <= np.ceil(ref_len+(j-query_len)*(p/(p+1)))) and \
                     (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
 
-        return (case, inDomain)
+        return (case, in_domain)
+    
+    def initialize_weigths(self):
+        n_feat = len(self.data['reference'])
+        weigths = np.ones(n_feat)
+        self.data['feat_weights'] = weigths
+    
+    def compute_mld(self, distance_matrix, warping_path):
+        k = len(warping_path)
+        on_path = [distance_matrix[i,j] for i,j in warping_path]
+        on_path_mld = np.mean(on_path)
+        off_path_mld = (sum(sum(distance_matrix)) - sum(on_path))/(np.product(distance_matrix.shape)-k)
+        
+        return {'onpath': on_path_mld,
+                'offpath': off_path_mld}
+        
+    def extract_single_feat(self, feat_idx, query_id):
+        reference_ts = np.array(self.data['reference'][feat_idx]['values']).reshape(-1, 1)
+        query_ts = np.array(self.data['queries'][query_id][feat_idx]['values']).reshape(-1, 1)
+        
+        return {'reference':reference_ts, 
+                'query': query_ts}
+    
+    def weight_optimization_single_batch(self, query_id, step_pattern):
+        
+        #weights = np.zeros(len(self.data['reference']))
+        reference_ts = self.convert_to_mvts(self.data['reference'])
+        query_ts = self.convert_to_mvts(self.data['queries'][query_id])
+        res = self.dtw(reference_ts, query_ts, step_pattern = step_pattern)
+        warping = res['warping']
+        tot_feats = len(self.data['reference'])
+        inputs = np.arange(tot_feats)
+        
+        def processFeats(feat_idx):
+            single_feats = self.extract_single_feat(feat_idx, query_id)
+            reference = single_feats['reference']
+            query = single_feats['query']
+            local_distance_matrix = self.comp_dist_matrix(reference, query)
+            
+            mld = self.compute_mld(local_distance_matrix, warping)
+            
+            weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
+            return weight
+
+        num_cores = multiprocessing.cpu_count() - 1    
+        weights = Parallel(n_jobs=num_cores, verbose = 1)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
+        
+        return weights
+    
+    def weight_optimization_step(self, step_pattern, update=False):
+        tot_feats = len(self.data['reference'])
+        num_queries = self.data['num_queries']
+        w_matrix = np.empty((num_queries, tot_feats))
+        
+        for c, query_id in zip(np.arange(num_queries), self.data['queriesID']):
+            print('Batch %d/%d'%(c+1, num_queries))
+            w_matrix[c, ] = self.weight_optimization_single_batch(query_id, step_pattern)
+            
+        updated_weights = np.mean(w_matrix, axis=0)
+        updated_weights = updated_weights/sum(updated_weights) * tot_feats
+        
+        if update: self.data['feat_weights'] = updated_weights
+        
+        return updated_weights
+    
+    def optimize_weigths(self, step_pattern, convergence_threshold = 0.002, n_steps = 10):
+        current_weights = self.data['feat_weights']
+        conv_val = 1
+        step = 0
+        
+        while conv_val > convergence_threshold and step < n_steps:
+            updated_weights = self.weight_optimization_step(step_pattern, update = True)
+            conv_val = np.abs(np.linalg.norm(updated_weights, ord=2) - np.linalg.norm(current_weights, ord=2))/np.linalg.norm(current_weights, ord=2)
+            current_weights = updated_weights
+            step += 1
+            print('Convergence value: %0.3f\nStep: %d'%(conv_val, step))
+        
+        self.data['feat_weights'] = updated_weights
 
 # ADD CONDITION ON ALIGNMENT ALREADY PERFORMED
-def loadData(n_to_keep=50):
+def load_data(n_to_keep=50):
+    """
+    Load data of operation 3.26, only the n_to_keep batches with duration closer to the median one
+    are selected
+    """
     data_path = "data/ope3_26.pickle"
     with open(data_path, "rb") as infile:
         data = pickle.load(infile)
 
-    opeLen = list()
-    pvDataset = list()
+    operation_length = list()
+    pv_dataset = list()
     for _id, pvs in data.items():
-        opeLen.append((len(pvs[0]['values']), _id))
-        pvList = list()
+        operation_length.append((len(pvs[0]['values']), _id))
+        pv_list = list()
         for pv_dict in pvs:
-            pvList.append(pv_dict['name'])
-        pvDataset.append(pvList)
+            pv_list.append(pv_dict['name'])
+        pv_dataset.append(pv_list)
 
-    medLen = np.median([l for l, _id in opeLen])
+    median_len = np.median([l for l, _id in operation_length])
 
     # Select the ref_len=50 closest to the median bacthes
     # center around the median
-    centered = [(abs(l-medLen), _id) for l, _id in opeLen]
+    centered = [(abs(l-median_len), _id) for l, _id in operation_length]
     selected = sorted(centered)[:n_to_keep]
 
     med_id = selected[0][1]  # 5153
@@ -579,8 +674,8 @@ def loadData(n_to_keep=50):
         if k != 99:
             data.pop(_id)
 
-    allIDs = list(data.keys())
-    for _id in allIDs:
+    all_ids = list(data.keys())
+    for _id in all_ids:
         if _id not in [x[1] for x in selected]:
             _ = data.pop(_id)
 
