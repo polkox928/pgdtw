@@ -605,7 +605,7 @@ class Dtw:
             return weight
 
         num_cores = multiprocessing.cpu_count() - 1    
-        weights = Parallel(n_jobs=num_cores, verbose = 1)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
+        weights = Parallel(n_jobs=num_cores, verbose = 2)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
         
         return weights
     
@@ -635,7 +635,7 @@ class Dtw:
             conv_val = np.abs(np.linalg.norm(updated_weights, ord=2) - np.linalg.norm(current_weights, ord=2))/np.linalg.norm(current_weights, ord=2)
             current_weights = updated_weights
             step += 1
-            print('Convergence value: %0.3f\nStep: %d'%(conv_val, step))
+            print('Convergence value: %0.3f\nStep: %d\n'%(conv_val, step))
         
         self.data['feat_weights'] = updated_weights
 
