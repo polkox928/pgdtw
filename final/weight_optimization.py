@@ -8,12 +8,12 @@ Created on Fri Jan 18 14:10:58 2019
 import libdtw as lib
 import sys
 import numpy as np
-np.set_printoptions(precision=3)
+np.set_printoptions(precision=2)
 
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 3
+    N_DATA = 10
     
 DATA = lib.load_data(N_DATA)
 D = lib.Dtw(DATA)

@@ -604,8 +604,8 @@ class Dtw:
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        num_cores = multiprocessing.cpu_count() - 1    
-        weights = Parallel(n_jobs=num_cores, verbose = 2)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
+        num_cores = multiprocessing.cpu_count()   
+        weights = Parallel(n_jobs=num_cores)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
         
         return weights
     
@@ -625,17 +625,19 @@ class Dtw:
         
         return updated_weights
     
-    def optimize_weigths(self, step_pattern, convergence_threshold = 0.002, n_steps = 10):
+    def optimize_weigths(self, step_pattern='symmetric2', convergence_threshold = 0.01, n_steps = 10):
         current_weights = self.data['feat_weights']
         conv_val = 1
         step = 0
         
         while conv_val > convergence_threshold and step < n_steps:
             updated_weights = self.weight_optimization_step(step_pattern, update = True)
-            conv_val = np.abs(np.linalg.norm(updated_weights, ord=2) - np.linalg.norm(current_weights, ord=2))/np.linalg.norm(current_weights, ord=2)
+            conv_val =np.linalg.norm(updated_weights - current_weights, ord=2)/np.linalg.norm(current_weights, ord=2)
             current_weights = updated_weights
             step += 1
-            print('Convergence value: %0.3f\nStep: %d\n'%(conv_val, step))
+            print('\nConvergence value: %0.3f\nStep: %d\n'%(conv_val, step))
+            print(current_weights, '\n')
+            
         
         self.data['feat_weights'] = updated_weights
 
