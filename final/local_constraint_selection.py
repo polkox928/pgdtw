@@ -14,7 +14,7 @@ import libdtw as lib
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 200
+    N_DATA = 50
 
 try:
     with open('dtwObj%d.pickle' % N_DATA, 'rb') as f:
@@ -71,7 +71,10 @@ FIG.add_subplot(1, 2, 2)
 plt.plot(DISTANCES, DISTORTIONS, '-o')
 plt.xlabel("Scaled distance")
 plt.ylabel("Scaled distortion")
-for x, y, label in zip(DISTANCES, DISTORTIONS, POSSIBLE_STEP_PATTERNS):
-    plt.annotate(label[label.index('P'):], xy=(x, y))
+plt.annotate('P05', xy=(DISTANCES[0], DISTORTIONS[0]), xytext=(-4, 5), textcoords='offset pixels')
+for x, y, label in zip(DISTANCES[1:6], DISTORTIONS[1:6], POSSIBLE_STEP_PATTERNS[1:6]):
+    plt.annotate(label[label.index('P'):], xy=(x, y), xytext=(5, 5), textcoords='offset pixels')
 
+for x, y, label in zip(DISTANCES[8::3], DISTORTIONS[8::3], POSSIBLE_STEP_PATTERNS[8::3]):
+    plt.annotate(label[label.index('P'):], xy=(x, y), xytext=(5, 0), textcoords='offset pixels')
 plt.show()

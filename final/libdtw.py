@@ -6,8 +6,10 @@ import re
 import pickle
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
+from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
 import matplotlib
+
 
 
 class Dtw:
@@ -134,16 +136,15 @@ class Dtw:
 
         return mvts
 
-    def comp_dist_matrix(self, reference_ts, query_ts, dist_measure="euclidean", n_jobs=1):
+    def comp_dist_matrix(self, reference_ts, query_ts, w=1.0, n_jobs=1):
         """
-        Computes the distance matrix with ref_len (length of the reference) number of rows and query_len (length
-        of the query) number of columns (OK with convention on indices in DTW) with dist_measure as
-        local distance measure
+        Computes the distance matrix with ref_len (length of the reference) number of rows and
+        query_len (length of the query) number of columns (OK with convention on indices in DTW)
+        with dist_measure as local distance measure
 
         reference_ts: mvts representation of reference batch
         query_ts: mvts representation of query batch
-        dist_measure: string indicating the local distance measure to be used.
-                        Must be allowed by pairwise_distances
+
         n_jobs: number of jobs for pairwise_distances function. It could cause problems on windows
         """
         _, d_1 = reference_ts.shape
@@ -155,7 +156,7 @@ class Dtw:
             return
 
         distance_matrix = pairwise_distances(
-            X=reference_ts, Y=query_ts, metric=dist_measure, n_jobs=n_jobs)
+            X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs, w=w)
 
         return distance_matrix
 
@@ -174,7 +175,7 @@ class Dtw:
             for j in np.arange(query_len):
                 acc_dist_matrix[i, j] = self.comp_acc_element(
                     i, j, acc_dist_matrix, distance_matrix, step_pattern)\
-                                            if self.Itakura(i, j, ref_len, query_len, step_pattern) else np.inf
+                            if self.Itakura(i, j, ref_len, query_len, step_pattern) else np.inf
 
         return acc_dist_matrix
 
@@ -192,7 +193,7 @@ class Dtw:
 
         if step_pattern == "symmetricP05":
 
-            p_1 = acc_dist_matrix[i-1, j-3] + 2 * distance_matrix[i, j-2] + distance_matrix[i, j-1] \
+            p_1 = acc_dist_matrix[i-1, j-3] + 2 * distance_matrix[i, j-2] + distance_matrix[i, j-1]\
                 + distance_matrix[i, j] if (i-1 >= 0 and j-3 >= 0) else np.inf
             p_2 = acc_dist_matrix[i-1, j-2] + 2 * distance_matrix[i, j-1] + \
                 distance_matrix[i, j] if (i-1 >= 0 and j-2 >= 0) else np.inf
@@ -200,7 +201,7 @@ class Dtw:
                 distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
             p_4 = acc_dist_matrix[i-2, j-1] + 2 * distance_matrix[i-1, j] + \
                 distance_matrix[i, j] if (i-2 >= 0 and j-1 >= 0) else np.inf
-            p_5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i-1, j] \
+            p_5 = acc_dist_matrix[i-3, j-1] + 2 * distance_matrix[i-2, j] + distance_matrix[i-1, j]\
                 + distance_matrix[i, j] if (i-3 >= 0 and j-1 >= 0) else np.inf
 
             return min(p_1, p_2, p_3, p_4, p_5)
@@ -223,32 +224,33 @@ class Dtw:
 
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
-            P = int(step_pattern[10:])
-            p_1 = acc_dist_matrix[i-P, j-(P+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in\
-                np.arange(0, P)]) + distance_matrix[i, j] if (i-P >= 0 and j-(P+1) >= 0) else np.inf
+            p = int(step_pattern[10:])
+            p_1 = acc_dist_matrix[i-p, j-(p+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in\
+                np.arange(0, p)]) + distance_matrix[i, j] if (i-p >= 0 and j-(p+1) >= 0) else np.inf
             p_2 = acc_dist_matrix[i-1, j-1] + \
                                     2 * distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
-            p_3 = acc_dist_matrix[i-(P+1), j-P] + 2*sum([distance_matrix[i-(p+1), j-p] \
-                                        for p in np.arange(0, P)]) + distance_matrix[i, j] \
-                                                                if (i-(P+1) >= 0 and j-P >= 0) \
+            p_3 = acc_dist_matrix[i-(p+1), j-p] + 2*sum([distance_matrix[i-(p+1), j-p] \
+                                        for p in np.arange(0, p)]) + distance_matrix[i, j] \
+                                                                if (i-(p+1) >= 0 and j-p >= 0) \
                                                                                         else np.inf
 
             return min(p_1, p_2, p_3)
 
-    def GetWarpingPath(self, acc_dist_matrix, step_pattern, ref_len, query_len):
+    def get_warping_path(self, acc_dist_matrix, step_pattern, ref_len, query_len):
         """
         Computes the warping path on the acc_dist_matrix induced by step_pattern starting from
-        the (ref_len,query_len) point (this in order to use the method in both open_ended and global alignment)
+        the (ref_len,query_len) point (this in order to use the method in both open_ended and global
+        alignment)
         Return the warping path (list of tuples) in ascending order
         """
         #ref_len, query_len = acc_dist_matrix.shape
-        warpingPath = list()
+        warping_path = list()
 
         if step_pattern == "symmetric1" or step_pattern == "symmetric2":
             i = ref_len-1
             j = query_len-1
             while i != 0 or j != 0:
-                warpingPath.append((i, j))
+                warping_path.append((i, j))
                 candidates = list()
                 if i > 0:
                     candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
@@ -257,11 +259,11 @@ class Dtw:
                 if len(candidates) == 2:
                     candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
-                nextStep = min(candidates)[1]
-                i, j = nextStep
-            warpingPath.append((0, 0))
+                next_step = min(candidates)[1]
+                i, j = next_step
+            warping_path.append((0, 0))
 
-            return warpingPath[::-1]
+            return warping_path[::-1]
 
         elif step_pattern == "symmetricP05":
             #maxWarp = 2
@@ -272,31 +274,31 @@ class Dtw:
                 print("Invalid value for P, \
                       a global alignment is not possible with this local constraint")
                 return
-            hStep = 0  # horizontal step
-            vStep = 0  # vertical step
-            dStep = 0  # diagonal step
+            h_step = 0  # horizontal step
+            v_step = 0  # vertical step
+            d_step = 0  # diagonal step
 
             while i != 0 or j != 0:
-                warpingPath.append((i, j))
+                warping_path.append((i, j))
                 candidates = list()
 
-                if hStep > 0:
-                    if hStep == 1:
+                if h_step > 0:
+                    if h_step == 1:
                         if j > 0:
                             candidates.append((acc_dist_matrix[i, j-1], (i, j-1)))
                         if j > 0 and i > 0:
                             candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
-                    elif hStep == 2:
+                    elif h_step == 2:
                         if j > 0 and i > 0:
                             candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
-                elif vStep > 0:
-                    if vStep == 1:
+                elif v_step > 0:
+                    if v_step == 1:
                         if i > 0:
                             candidates.append((acc_dist_matrix[i-1, j], (i-1, j)))
                         if j > 0 and i > 0:
                             candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
-                    elif vStep == 2:
+                    elif v_step == 2:
                         if j > 0 and i > 0:
                             candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
@@ -308,24 +310,24 @@ class Dtw:
                     if j > 0 and i > 0:
                         candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
-                nextStep = min(candidates)[1]
-                v = nextStep[0] < i
-                h = nextStep[1] < j
+                next_step = min(candidates)[1]
+                v = next_step[0] < i
+                h = next_step[1] < j
                 d = v and h
 
                 if d:
-                    vStep = 0
-                    hStep = 0
+                    v_step = 0
+                    h_step = 0
                 elif v:
-                    vStep += 1
+                    v_step += 1
                 elif h:
-                    hStep += 1
+                    h_step += 1
 
-                i, j = nextStep
+                i, j = next_step
 
-            warpingPath.append((0, 0))
+            warping_path.append((0, 0))
 
-            return warpingPath[::-1]
+            return warping_path[::-1]
 
         else:
             patt = re.compile("symmetricP[1-9]+\d*")
@@ -334,7 +336,7 @@ class Dtw:
                 minDiagSteps = int(step_pattern[10:])
 
                 wStep = 0
-                dStep = 0
+                d_step = 0
                 i = ref_len-1
                 j = query_len-1
 
@@ -344,7 +346,7 @@ class Dtw:
                     return
 
                 while i != 0 and j != 0:
-                    warpingPath.append((i, j))
+                    warping_path.append((i, j))
                     candidates = list()
                     if wStep > 0:
                         candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
@@ -356,33 +358,33 @@ class Dtw:
                         if len(candidates) == 2:
                             candidates.append((acc_dist_matrix[i-1, j-1], (i-1, j-1)))
 
-                    nextStep = min(candidates)[1]
-                    v = nextStep[0] < i
-                    h = nextStep[1] < j
+                    next_step = min(candidates)[1]
+                    v = next_step[0] < i
+                    h = next_step[1] < j
                     d = v and h
 
                     if d:
-                        dStep += 1
-                        if dStep == minDiagSteps:
-                            dStep = 0
+                        d_step += 1
+                        if d_step == minDiagSteps:
+                            d_step = 0
                             wStep = 0
-                        elif dStep < minDiagSteps and wStep > 0:
+                        elif d_step < minDiagSteps and wStep > 0:
                             pass
-                        elif dStep < minDiagSteps and wStep == 0:
-                            dStep = 0
+                        elif d_step < minDiagSteps and wStep == 0:
+                            d_step = 0
                     else:
                         wStep += 1
 
-                    i, j = nextStep
+                    i, j = next_step
 
-                warpingPath.append((0, 0))
+                warping_path.append((0, 0))
 
-                return warpingPath[::-1]
+                return warping_path[::-1]
 
             else:
                 print("Invalid step-pattern")
 
-    def CallDTW(self, queryID, step_pattern="symmetricP05", dist_measure="euclidean",\
+    def CallDTW(self, queryID, step_pattern="symmetricP05", \
                                                     n_jobs=1, open_ended=False, get_results=False):
         """
         Calls the DTW method on the data stored in the .data attribute (needs only the queryID in \
@@ -397,7 +399,7 @@ class Dtw:
         reference_ts = self.convert_to_mvts(self.data['reference'])
         query_ts = self.convert_to_mvts(self.data['queries'][queryID])
 
-        result = self.DTW(reference_ts, query_ts, step_pattern, dist_measure, n_jobs, open_ended)
+        result = self.DTW(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
 
         self.data["warpings"][queryID] = result["warping"]
         self.data["distances"][queryID] = result["DTW_distance"]
@@ -408,7 +410,7 @@ class Dtw:
         if get_results:
             return result
 
-    def DTW(self, reference_ts, query_ts, step_pattern="symmetricP05", dist_measure="euclidean",\
+    def DTW(self, reference_ts, query_ts, step_pattern="symmetricP05",\
                                                                         n_jobs=1, open_ended=False):
         """
         Compute alignment betwwen reference_ts and query_ts (already in mvts form).
@@ -419,17 +421,18 @@ class Dtw:
         if not open_ended:
             patt = re.compile("symmetricP[1-9]+\d*")
             if patt.match(step_pattern):
-                P = int(step_pattern[step_pattern.index("P")+1:])
+                p = int(step_pattern[step_pattern.index("P")+1:])
                 ref_len, query_len = len(reference_ts), len(query_ts)
-                Pmax = np.floor(min(ref_len, query_len)/np.abs(ref_len-query_len)) if np.abs(ref_len-query_len) > 0 else np.inf
-                if P > Pmax:
+                Pmax = np.floor(min(ref_len, query_len)/np.abs(ref_len-query_len)) \
+                                                    if np.abs(ref_len-query_len) > 0 else np.inf
+                if p > Pmax:
                     print("Invalid value for P, \
                                   a global alignment is not possible with this local constraint")
                     return
             else:
                 pass
 
-        distance_matrix = self.comp_dist_matrix(reference_ts, query_ts, dist_measure, n_jobs)
+        distance_matrix = self.comp_dist_matrix(reference_ts, query_ts, n_jobs)
 
         acc_dist_matrix = self.comp_acc_dist_matrix(distance_matrix, step_pattern)
 
@@ -439,7 +442,7 @@ class Dtw:
         if open_ended:
             ref_len = self.GetRefPrefixLength(acc_dist_matrix)
 
-        warping = self.GetWarpingPath(acc_dist_matrix, step_pattern, ref_len, query_len)
+        warping = self.get_warping_path(acc_dist_matrix, step_pattern, ref_len, query_len)
 
         dtwDist = acc_dist_matrix[ref_len-1, query_len-1]
 
@@ -519,8 +522,10 @@ class Dtw:
             p = int(step_pattern[step_pattern.index('P')+1:])
         else: return True
 
-        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and \
-                    (i <= np.ceil(ref_len+(j-query_len)*(p/(p+1)))) and (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
+        inDomain = (i >= np.floor(j*p/(p+1))) and \
+                    (i <= np.ceil(j*(p+1)/p)) and \
+                    (i <= np.ceil(ref_len+(j-query_len)*(p/(p+1)))) and \
+                    (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
         return inDomain
 
     def ExtremeItakura(self, i, j, ref_len, query_len, step_pattern):
@@ -536,8 +541,10 @@ class Dtw:
             case = 1
             return (case, False)
 
-        inDomain = (i >= np.floor(j*p/(p+1))) and (i <= np.ceil(j*(p+1)/p)) and \
-        (i <= np.ceil(ref_len+(j-query_len)*(p/(p+1)))) and (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
+        inDomain = (i >= np.floor(j*p/(p+1))) and \
+                    (i <= np.ceil(j*(p+1)/p)) and \
+                    (i <= np.ceil(ref_len+(j-query_len)*(p/(p+1)))) and \
+                    (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
 
         return (case, inDomain)
 

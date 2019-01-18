@@ -15,7 +15,7 @@ Created on Fri Dec 28 16:39:46 2018
 # 
 # d = lib.dtw()
 # 
-# distMatrix = d.CompDistMatrix(ref, query, "euclidean", 1)
+# distMatrix = d.comp_dist_matrix(ref, query, "euclidean", 1)
 # 
 # print(distMatrix)
 # 
@@ -81,11 +81,11 @@ IDs = list(data.keys())
 
 data['reference'] = med_id
 
-d = lib.dtw(data)
-ref = d.ConvertToMVTS(d.data['reference'])
-query = d.ConvertToMVTS(d.data['queries']['5300'])
+d = lib.Dtw(data)
+ref = d.convert_to_mvts(d.data['reference'])
+query = d.convert_to_mvts(d.data['queries']['5300'])
 
-step_pattern = "symmetricP05"
+step_pattern = "symmetricP2"
 res = d.DTW(ref, query, open_ended=False, step_pattern=step_pattern, n_jobs = 1)
 warp = res['warping']
 
@@ -94,7 +94,7 @@ print(res['warping'][-1])
 
 fig=plt.figure(figsize=(12, 5))
 fig.add_subplot(1,2,1)
-d.DistanceCostPlot(d.CompDistMatrix(ref, query))
+d.DistanceCostPlot(d.comp_dist_matrix(ref, query))
 plt.plot([x[1] for x in warp], [x[0] for x in warp])
 plt.ylim(0, ref.shape[0])
 plt.xlim(0, query.shape[0])
@@ -102,7 +102,7 @@ plt.title('Distance Matrix')
 #plt.show()
 
 fig.add_subplot(1,2,2)
-d.DistanceCostPlot(d.CompAccDistMatrix(d.CompDistMatrix(ref, query), step_pattern=step_pattern))
+d.DistanceCostPlot(d.comp_acc_dist_matrix(d.comp_dist_matrix(ref, query), step_pattern=step_pattern))
 plt.plot([x[1] for x in warp], [x[0] for x in warp])
 plt.ylim(0, ref.shape[0])
 plt.xlim(0, query.shape[0])
