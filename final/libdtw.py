@@ -9,7 +9,6 @@ from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
 import matplotlib
-from tqdm import tqdm
 from joblib import Parallel, delayed
 import multiprocessing
 
@@ -30,7 +29,7 @@ class Dtw:
             self.data = self.convert_data_from_json(json_obj)
             self.scale_params = self.get_scaling_parameters()
             self.remove_const_feats()
-            self.initialize_weigths()
+            self.reset_weights()
 
     def convert_data_from_json(self, json_obj):
         """
@@ -561,84 +560,86 @@ class Dtw:
                     (i >= np.floor(ref_len+(j-query_len)*((p+1)/p)))
 
         return (case, in_domain)
-    
-    def initialize_weigths(self):
+
+    def reset_weights(self):
         n_feat = len(self.data['reference'])
         weigths = np.ones(n_feat)
         self.data['feat_weights'] = weigths
-    
+
     def compute_mld(self, distance_matrix, warping_path):
         k = len(warping_path)
-        on_path = [distance_matrix[i,j] for i,j in warping_path]
+        on_path = [distance_matrix[i, j] for i, j in warping_path]
         on_path_mld = np.mean(on_path)
-        off_path_mld = (sum(sum(distance_matrix)) - sum(on_path))/(np.product(distance_matrix.shape)-k)
-        
+        off_path_mld = (sum(sum(distance_matrix)) - sum(on_path))\
+                                                            /(np.product(distance_matrix.shape)-k)
+
         return {'onpath': on_path_mld,
                 'offpath': off_path_mld}
-        
+
     def extract_single_feat(self, feat_idx, query_id):
         reference_ts = np.array(self.data['reference'][feat_idx]['values']).reshape(-1, 1)
         query_ts = np.array(self.data['queries'][query_id][feat_idx]['values']).reshape(-1, 1)
-        
-        return {'reference':reference_ts, 
+
+        return {'reference':reference_ts,
                 'query': query_ts}
-    
+
     def weight_optimization_single_batch(self, query_id, step_pattern):
-        
+
         #weights = np.zeros(len(self.data['reference']))
         reference_ts = self.convert_to_mvts(self.data['reference'])
         query_ts = self.convert_to_mvts(self.data['queries'][query_id])
-        res = self.dtw(reference_ts, query_ts, step_pattern = step_pattern)
+        res = self.dtw(reference_ts, query_ts, step_pattern=step_pattern)
         warping = res['warping']
         tot_feats = len(self.data['reference'])
         inputs = np.arange(tot_feats)
-        
+
         def processFeats(feat_idx):
             single_feats = self.extract_single_feat(feat_idx, query_id)
             reference = single_feats['reference']
             query = single_feats['query']
             local_distance_matrix = self.comp_dist_matrix(reference, query)
-            
+
             mld = self.compute_mld(local_distance_matrix, warping)
-            
+
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        num_cores = multiprocessing.cpu_count()   
+        num_cores = multiprocessing.cpu_count()
         weights = Parallel(n_jobs=num_cores)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
-        
+
         return weights
-    
-    def weight_optimization_step(self, step_pattern, update=False):
+
+    def weight_optimization_step(self, step_pattern='symmetric2', update=False):
         tot_feats = len(self.data['reference'])
         num_queries = self.data['num_queries']
         w_matrix = np.empty((num_queries, tot_feats))
-        
+
         for c, query_id in zip(np.arange(num_queries), self.data['queriesID']):
             print('Batch %d/%d'%(c+1, num_queries))
             w_matrix[c, ] = self.weight_optimization_single_batch(query_id, step_pattern)
-            
+
         updated_weights = np.mean(w_matrix, axis=0)
         updated_weights = updated_weights/sum(updated_weights) * tot_feats
-        
+
         if update: self.data['feat_weights'] = updated_weights
-        
+
         return updated_weights
-    
-    def optimize_weigths(self, step_pattern='symmetric2', convergence_threshold = 0.01, n_steps = 10):
+
+    def optimize_weigths(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10):
         current_weights = self.data['feat_weights']
         conv_val = 1
         step = 0
-        
+
         while conv_val > convergence_threshold and step < n_steps:
-            updated_weights = self.weight_optimization_step(step_pattern, update = True)
-            conv_val =np.linalg.norm(updated_weights - current_weights, ord=2)/np.linalg.norm(current_weights, ord=2)
+            updated_weights = self.weight_optimization_step(step_pattern, update=True)
+            conv_val = np.linalg.norm(updated_weights - current_weights, ord=2)\
+                                                            /np.linalg.norm(current_weights, ord=2)
             current_weights = updated_weights
             step += 1
             print('\nConvergence value: %0.3f\nStep: %d\n'%(conv_val, step))
             print(current_weights, '\n')
-            
-        
+
+
         self.data['feat_weights'] = updated_weights
 
 # ADD CONDITION ON ALIGNMENT ALREADY PERFORMED
