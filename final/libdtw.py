@@ -248,7 +248,7 @@ class Dtw:
         alignment)
         Return the warping path (list of tuples) in ascending order
         """
-        #ref_len, query_len = acc_dist_matrix.shape
+        # ref_len, query_len = acc_dist_matrix.shape
         warping_path = list()
 
         if step_pattern == "symmetric1" or step_pattern == "symmetric2":
@@ -271,8 +271,8 @@ class Dtw:
             return warping_path[::-1]
 
         elif step_pattern == "symmetricP05":
-            #maxWarp = 2
-            #minDiag = 1
+            # maxWarp = 2
+            # minDiag = 1
             i = ref_len-1
             j = query_len-1
 
@@ -645,6 +645,26 @@ class Dtw:
         vars = [pv['name'] for pv in self.data['reference']]
         var_weight = {var: weight for var, weight in zip(vars, self.data['feat_weights'])}
         return var_weight
+
+    def plot_weights(self, n=25, figsize=(15, 8)):
+        plt.rcdefaults()
+        fig, ax = plt.subplots(figsize=figsize)
+
+        vars = sorted(list(self.get_weight_variables().items()),
+                      key=lambda x: x[1], reverse=True)[:n]
+        names = [v[0] for v in vars]
+        y_pos = np.arange(len(names))
+        weights = [v[1] for v in vars]
+
+        ax.barh(y_pos, weights, align='center', color='#d90000')
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(names)
+        ax.invert_yaxis()  # labels read top-to-bottom
+        ax.set_xlabel('Weights')
+        ax.set_title('Variables\' weights')
+
+        fig.tight_layout()
+        plt.show()
 
 
 def load_data(n_to_keep=50):

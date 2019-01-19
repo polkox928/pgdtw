@@ -34,20 +34,4 @@ except OSError as ex:
 with open('dtwObjOptWeights%dAllFeats.pickle' % N_DATA, 'wb') as f:
     pickle.dump(D.data['feat_weights'], f, protocol=pickle.HIGHEST_PROTOCOL)
 
-plt.rcdefaults()
-fig, ax = plt.subplots(figsize=(15, 8))
-
-vars = sorted(list(D.get_weight_variables().items()), key=lambda x: x[1], reverse=True)[:25]
-names = [v[0] for v in vars]
-y_pos = np.arange(len(names))
-weights = [v[1] for v in vars]
-
-ax.barh(y_pos, weights, align='center', color='#d90000')
-ax.set_yticks(y_pos)
-ax.set_yticklabels(names)
-ax.invert_yaxis()  # labels read top-to-bottom
-ax.set_xlabel('Weights')
-ax.set_title('Variables\' weights')
-
-fig.tight_layout()
-plt.show()
+D.plot_weights()
