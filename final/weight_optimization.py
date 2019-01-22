@@ -4,20 +4,17 @@ Created on Fri Jan 18 14:10:58 2019
 
 @author: DEPAGRA
 """
-
 import libdtw as lib
 import sys
 import numpy as np
 import pickle
-from pprint import pprint
-import matplotlib.pyplot as plt
 
 np.set_printoptions(precision=2)
 
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 5
+    N_DATA = 3
 
 DATA = lib.load_data(N_DATA)
 D = lib.Dtw(DATA)

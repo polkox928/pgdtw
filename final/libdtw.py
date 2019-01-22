@@ -160,8 +160,8 @@ class Dtw:
             return
 
         distance_matrix = pairwise_distances(
-            X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs,
-            w=self.data['feat_weights'])
+            X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs, w=self.data['feat_weights']
+            )
 
         return distance_matrix
 
@@ -182,7 +182,7 @@ class Dtw:
                     i, j, acc_dist_matrix, distance_matrix, step_pattern)\
                     if self.itakura(i, j, ref_len, query_len, step_pattern) else np.inf
 
-        return acc_dist_matrix
+        return acc_dist_matrix#/(ref_len+query_len)
 
     def comp_acc_element(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
         """
@@ -503,6 +503,9 @@ class Dtw:
             return avgTD
 
     def AvgDistance(self, step_pattern):
+        """
+        Computes average 
+        """
         if len(self.data['distance_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
             return
@@ -513,16 +516,25 @@ class Dtw:
             return avgDist
 
     def GetPmax(self, query_id):
+        """
+        Computes the maximum value of P for the selected query batch
+        """
         Kq = len(self.data['queries'][query_id][0]['values'])
         Kr = len(self.data['reference'][0]['values'])
         p_max = np.floor(min(Kq, Kr)/abs(Kq - Kr)) if abs(Kq - Kr) > 0 else Kr
         return p_max
 
     def GetGlobalPmax(self):
+        """
+        Computes the maximum value of P for the data set under consideration
+        """
         p_maxs = [self.GetPmax(query_id) for query_id in self.data['queriesID']]
         return int(min(p_maxs))
 
     def itakura(self, i, j, ref_len, query_len, step_pattern):
+        """
+        Induced Itakura global constraint for GLOBAL ALIGNMENT
+        """
         patt = re.compile("symmetricP[1-9]+\d*")
         if step_pattern == "symmetricP05":
             p = 1/2
@@ -562,11 +574,17 @@ class Dtw:
         return (case, in_domain)
 
     def reset_weights(self):
+        """
+        Reset the variables' weights to 1 
+        """
         n_feat = len(self.data['reference'])
         weigths = np.ones(n_feat)
         self.data['feat_weights'] = weigths
 
     def compute_mld(self, distance_matrix, warping_path):
+        """
+        Compute the MLDs coefficients (mean local distance) of a certain distance_matrix relative to warping_path
+        """
         k = len(warping_path)
         on_path = [distance_matrix[i, j] for i, j in warping_path]
         on_path_mld = np.mean(on_path)
@@ -577,14 +595,19 @@ class Dtw:
                 'offpath': off_path_mld}
 
     def extract_single_feat(self, feat_idx, query_id):
-        reference_ts = np.array(self.data['reference'][feat_idx]['values']).reshape(-1, 1)
-        query_ts = np.array(self.data['queries'][query_id][feat_idx]['values']).reshape(-1, 1)
+        """
+        Accessory method for selecting single features from the dataset
+        """
+        reference_ts = np.array(self.scale_pv(" ", self.data['reference'][feat_idx]['values'])).reshape(-1, 1)
+        query_ts = np.array(self.scale_pv(" ", self.data['queries'][query_id][feat_idx]['values'])).reshape(-1, 1)
 
         return {'reference': reference_ts,
                 'query': query_ts}
 
     def weight_optimization_single_batch(self, query_id, step_pattern):
-
+        """
+        Optimization step regarding a single batch
+        """
         reference_ts = self.convert_to_mvts(self.data['reference'])
         query_ts = self.convert_to_mvts(self.data['queries'][query_id])
         res = self.dtw(reference_ts, query_ts, step_pattern=step_pattern)
@@ -609,6 +632,9 @@ class Dtw:
         return weights
 
     def weight_optimization_step(self, step_pattern='symmetric2', update=False):
+        """
+        Single iteration of the optimization algorithm, considering all batches in the instance
+        """
         tot_feats = len(self.data['reference'])
         num_queries = self.data['num_queries']
         w_matrix = np.empty((num_queries, tot_feats))
@@ -626,6 +652,9 @@ class Dtw:
         return updated_weights
 
     def optimize_weigths(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10):
+        """
+        Implements the algorithm for the optimization of the weights
+        """
         current_weights = self.data['feat_weights']
         conv_val = 1
         step = 0
@@ -642,11 +671,17 @@ class Dtw:
         self.data['feat_weights'] = updated_weights
 
     def get_weight_variables(self):
+        """
+        Returns a dictionary with the weight for each variable
+        """
         vars = [pv['name'] for pv in self.data['reference']]
         var_weight = {var: weight for var, weight in zip(vars, self.data['feat_weights'])}
         return var_weight
 
     def plot_weights(self, n=25, figsize=(15, 8)):
+        """
+        Horizontal bar chart with variables' weights sorted by magnitude
+        """
         plt.rcdefaults()
         fig, ax = plt.subplots(figsize=figsize)
 
@@ -665,6 +700,22 @@ class Dtw:
 
         fig.tight_layout()
         plt.show()
+        
+    def plot_by_name(self, _id, pv_name):
+        """
+        Plots one pv relative to a batch with ID equal to _id, according to its name pv_name
+        """
+        pv_list = [pv['name'] for pv in self.data['reference']]
+        
+        if _id != self.data['ref_id']:
+            pv_idx = pv_list.index(pv_name)
+            plt.plot(self.data['queries'][_id][pv_idx]['values'])
+            plt.show()
+        elif _id == self.data['ref_id']:
+            pv_idx = pv_list.index(pv_name)
+            plt.plot(self.data['reference'][pv_idx]['values'])
+            plt.show()
+        else: print('Batch ID not found')
 
 
 def load_data(n_to_keep=50):

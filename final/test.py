@@ -49,8 +49,8 @@ for _id, pvs in data.items():
     for pv in pvs:
         pvList.append(pv['name'])
     pvDataset.append(pvList)
-plt.hist([l for l, _id in opeLen], bins=50)
-plt.show()
+#plt.hist([l for l, _id in opeLen], bins=50)
+#plt.show()
 
 medLen = np.median([l for l, _id in opeLen])
 
@@ -58,8 +58,8 @@ medLen = np.median([l for l, _id in opeLen])
 # center around the median
 centered = [(abs(l-medLen), _id) for l, _id in opeLen]
 selected = sorted(centered)[:50]
-plt.hist([l for l, _id in opeLen if _id in [ID for d, ID in selected]], bins = 20)
-plt.show()
+#plt.hist([l for l, _id in opeLen if _id in [ID for d, ID in selected]], bins = 20)
+#plt.show()
 med_id = selected[0][1] #5153
 print(med_id)
 # pop batches without all pvs
@@ -85,7 +85,7 @@ d = lib.Dtw(data)
 ref = d.convert_to_mvts(d.data['reference'])
 query = d.convert_to_mvts(d.data['queries']['5300'])
 
-step_pattern = "symmetricP05"
+step_pattern = "symmetric2"
 res = d.dtw(ref, query, open_ended=False, step_pattern=step_pattern, n_jobs = 1)
 warp = res['warping']
 
@@ -93,6 +93,7 @@ print(res['DTW_distance'])
 print(res['warping'][-1])
 
 fig=plt.figure(figsize=(12, 5))
+fig.suptitle(step_pattern)
 fig.add_subplot(1,2,1)
 d.distance_cost_plot(d.comp_dist_matrix(ref, query))
 plt.plot([x[1] for x in warp], [x[0] for x in warp])
