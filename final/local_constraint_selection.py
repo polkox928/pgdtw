@@ -14,10 +14,10 @@ import libdtw as lib
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 25
+    N_DATA = 50
 
 try:
-    with open('dtwObj%d.pickle' % N_DATA, 'rb') as f:
+    with open('dtwObj%dstepPattern.pickle' % N_DATA, 'rb') as f:
         D = pickle.load(f)
 except OSError as ex:
     DATA = lib.load_data(N_DATA)
@@ -42,7 +42,7 @@ for step_pattern in POSSIBLE_STEP_PATTERNS[::-1]:
     RES[step_pattern].append(D.AvgDistance(step_pattern))
 # %%
     # pickle D object
-with open('dtwObj%d.pickle' % N_DATA, 'wb') as f:
+with open('dtwObj%dstepPattern.pickle' % N_DATA, 'wb') as f:
     pickle.dump(D, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 # %%
@@ -75,7 +75,7 @@ plt.ylabel("Alignment SCORE")
 FIG.add_subplot(1, 2, 2)
 plt.plot(DISTANCES, DISTORTIONS, '-o', color = '#d90000')
 plt.xlabel("Scaled distance")
-plt.ylabel("Scaled distortion")
+plt.ylabel("Scaled time distortion")
 plt.annotate('P05', xy=(DISTANCES[0], DISTORTIONS[0]), xytext=(-4, 5), textcoords='offset pixels')
 for x, y, label in zip(DISTANCES[1:6], DISTORTIONS[1:6], POSSIBLE_STEP_PATTERNS[1:6]):
     plt.annotate(label[label.index('P'):], xy=(x, y), xytext=(5, 5), textcoords='offset pixels')

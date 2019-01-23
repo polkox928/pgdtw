@@ -4,13 +4,13 @@ dtw class and load_data function
 from collections import defaultdict
 import re
 import pickle
+import multiprocessing
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
 import matplotlib
 from joblib import Parallel, delayed
-import multiprocessing
 
 
 class Dtw:
@@ -26,7 +26,7 @@ class Dtw:
         if not json_obj:
             pass
         else:
-            self.data = self.convert_data_from_json(json_obj)
+            self.convert_data_from_json(json_obj)
             self.scale_params = self.get_scaling_parameters()
             # self.remove_const_feats()
             self.reset_weights()
@@ -45,17 +45,17 @@ class Dtw:
         queries = {key: batch for key, batch in json_obj.items() if key !=
                    "reference" and key != ref_id}
 
-        return {"ref_id": ref_id,
-                "reference": reference,
-                "queries": queries,
-                "num_queries": len(queries),
-                "warpings": dict(),
-                "distances": dict(),
-                "queriesID": list(queries.keys()),
-                "time_distortion": defaultdict(dict),
-                "distance_distortion": defaultdict(dict),
-                'warpings_per_step_pattern': defaultdict(dict),
-                'feat_weights': 1.0}
+        self.data = {"ref_id": ref_id,
+                     "reference": reference,
+                     "queries": queries,
+                     "num_queries": len(queries),
+                     "warpings": dict(),
+                     "distances": dict(),
+                     "queriesID": list(queries.keys()),
+                     "time_distortion": defaultdict(dict),
+                     "distance_distortion": defaultdict(dict),
+                     'warpings_per_step_pattern': defaultdict(dict),
+                     'feat_weights': 1.0}
 
     def get_scaling_parameters(self):
         """
@@ -230,14 +230,15 @@ class Dtw:
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
             p = int(step_pattern[10:])
-            p_1 = acc_dist_matrix[i-p, j-(p+1)] + 2*sum([distance_matrix[i-p, j-(p+1)] for p in
-                                                         np.arange(0, p)]) + distance_matrix[i, j] if (i-p >= 0 and j-(p+1) >= 0) else np.inf
+            p_1 = acc_dist_matrix[i-p, j-(p+1)] + 2*sum([distance_matrix[i-p, j-(p+1)]\
+                                             for p in np.arange(0, p)]) + distance_matrix[i, j]\
+                                                        if (i-p >= 0 and j-(p+1) >= 0) else np.inf
             p_2 = acc_dist_matrix[i-1, j-1] + \
                 2 * distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
-            p_3 = acc_dist_matrix[i-(p+1), j-p] + 2*sum([distance_matrix[i-(p+1), j-p]
-                                                         for p in np.arange(0, p)]) + distance_matrix[i, j] \
-                if (i-(p+1) >= 0 and j-p >= 0) \
-                else np.inf
+            p_3 = acc_dist_matrix[i-(p+1), j-p] + 2*sum([distance_matrix[i-(p+1), j-p]\
+                                             for p in np.arange(0, p)]) + distance_matrix[i, j] \
+                                                                    if (i-(p+1) >= 0 and j-p >= 0) \
+                                                                                        else np.inf
 
             return min(p_1, p_2, p_3)  # /sum(acc_dist_matrix.shape)
 
@@ -493,42 +494,45 @@ class Dtw:
         return sum(t_d)
 
     def avg_time_distortion(self, step_pattern):
+        """
+        Computes the average time distortion relative to a certain step pattern
+        """
         if len(self.data['time_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
             return
         else:
             I = self.data['num_queries']
-            avgTD = 1/I*sum(self.data['time_distortion'][step_pattern].values())
+            avg_td = 1/I*sum(self.data['time_distortion'][step_pattern].values())
 
-            return avgTD
+            return avg_td
 
-    def AvgDistance(self, step_pattern):
+    def avg_distance(self, step_pattern):
         """
-        Computes average 
+        Computes average
         """
         if len(self.data['distance_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
             return
         else:
             I = self.data['num_queries']
-            avgDist = 1/I*sum(self.data['distance_distortion'][step_pattern].values())
+            avg_dist = 1/I*sum(self.data['distance_distortion'][step_pattern].values())
 
-            return avgDist
+            return avg_dist
 
-    def GetPmax(self, query_id):
+    def get_p_max(self, query_id):
         """
         Computes the maximum value of P for the selected query batch
         """
-        Kq = len(self.data['queries'][query_id][0]['values'])
-        Kr = len(self.data['reference'][0]['values'])
-        p_max = np.floor(min(Kq, Kr)/abs(Kq - Kr)) if abs(Kq - Kr) > 0 else Kr
+        k_q = len(self.data['queries'][query_id][0]['values'])
+        k_r = len(self.data['reference'][0]['values'])
+        p_max = np.floor(min(k_q, k_r)/abs(k_q - k_r)) if abs(k_q - k_r) > 0 else k_r
         return p_max
 
-    def GetGlobalPmax(self):
+    def get_global_p_max(self):
         """
         Computes the maximum value of P for the data set under consideration
         """
-        p_maxs = [self.GetPmax(query_id) for query_id in self.data['queriesID']]
+        p_maxs = [self.get_p_max(query_id) for query_id in self.data['queriesID']]
         return int(min(p_maxs))
 
     def itakura(self, i, j, ref_len, query_len, step_pattern):
@@ -575,7 +579,7 @@ class Dtw:
 
     def reset_weights(self):
         """
-        Reset the variables' weights to 1 
+        Reset the variables' weights to 1
         """
         n_feat = len(self.data['reference'])
         weigths = np.ones(n_feat)
@@ -583,7 +587,8 @@ class Dtw:
 
     def compute_mld(self, distance_matrix, warping_path):
         """
-        Compute the MLDs coefficients (mean local distance) of a certain distance_matrix relative to warping_path
+        Compute the MLDs coefficients (mean local distance) of a certain distance_matrix relative
+        to warping_path
         """
         k = len(warping_path)
         on_path = [distance_matrix[i, j] for i, j in warping_path]
@@ -598,8 +603,10 @@ class Dtw:
         """
         Accessory method for selecting single features from the dataset
         """
-        reference_ts = np.array(self.scale_pv(" ", self.data['reference'][feat_idx]['values'])).reshape(-1, 1)
-        query_ts = np.array(self.scale_pv(" ", self.data['queries'][query_id][feat_idx]['values'])).reshape(-1, 1)
+        reference_ts = np.array(self.scale_pv(" ", self.data['reference'][feat_idx]['values'])\
+                                ).reshape(-1, 1)
+        query_ts = np.array(self.scale_pv(" ", self.data['queries'][query_id][feat_idx]['values'])\
+                            ).reshape(-1, 1)
 
         return {'reference': reference_ts,
                 'query': query_ts}
@@ -615,7 +622,10 @@ class Dtw:
         tot_feats = len(self.data['reference'])
         inputs = np.arange(tot_feats)
 
-        def processFeats(feat_idx):
+        def process_feats(feat_idx):
+            """
+            Computes mld->weight for single feature
+            """
             single_feats = self.extract_single_feat(feat_idx, query_id)
             reference = single_feats['reference']
             query = single_feats['query']
@@ -626,8 +636,9 @@ class Dtw:
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        num_cores = multiprocessing.cpu_count() - 1
-        weights = Parallel(n_jobs=num_cores)(delayed(processFeats)(feat_idx) for feat_idx in inputs)
+        num_cores = multiprocessing.cpu_count()
+        weights = Parallel(n_jobs=num_cores)\
+                                    (delayed(process_feats)(feat_idx) for feat_idx in inputs)
 
         return weights
 
@@ -700,13 +711,13 @@ class Dtw:
 
         fig.tight_layout()
         plt.show()
-        
+
     def plot_by_name(self, _id, pv_name):
         """
         Plots one pv relative to a batch with ID equal to _id, according to its name pv_name
         """
         pv_list = [pv['name'] for pv in self.data['reference']]
-        
+
         if _id != self.data['ref_id']:
             pv_idx = pv_list.index(pv_name)
             plt.plot(self.data['queries'][_id][pv_idx]['values'])
