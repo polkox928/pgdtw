@@ -14,7 +14,7 @@ np.set_printoptions(precision=2)
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 11
+    N_DATA = 21
 
 DATA = lib.load_data(N_DATA)
 D = lib.Dtw(DATA)

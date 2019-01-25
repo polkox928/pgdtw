@@ -5,13 +5,58 @@ from collections import defaultdict
 import re
 import pickle
 import multiprocessing
+from copy import copy
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
 import matplotlib
 from joblib import Parallel, delayed
+import pandas as pd
+from tqdm import tqdm
 
+def load_data(n_to_keep=50):
+    """
+    Load data of operation 3.26, only the n_to_keep batches with duration closer to the median one
+    are selected
+    """
+    data_path = "data/ope3_26.pickle"
+    with open(data_path, "rb") as infile:
+        data = pickle.load(infile)
+
+    operation_length = list()
+    pv_dataset = list()
+    for _id, pvs in data.items():
+        operation_length.append((len(pvs[0]['values']), _id))
+        pv_list = list()
+        for pv_dict in pvs:
+            pv_list.append(pv_dict['name'])
+        pv_dataset.append(pv_list)
+
+    median_len = np.median([l for l, _id in operation_length])
+
+    # Select the ref_len=50 closest to the median bacthes
+    # center around the median
+    centered = [(abs(l-median_len), _id) for l, _id in operation_length]
+    selected = sorted(centered)[:n_to_keep]
+
+    med_id = selected[0][1]  # 5153
+
+    # pop batches without all pvs
+    ids = list(data.keys())
+    for _id in ids:
+        k = len(data[_id])
+        if k != 99:
+            data.pop(_id)
+
+    all_ids = list(data.keys())
+    for _id in all_ids:
+        if _id not in [x[1] for x in selected]:
+            _ = data.pop(_id)
+
+    data['reference'] = med_id
+
+    return data
 
 class Dtw:
     """
@@ -56,6 +101,20 @@ class Dtw:
                      "distance_distortion": defaultdict(dict),
                      'warpings_per_step_pattern': defaultdict(dict),
                      'feat_weights': 1.0}
+        
+        self.data_open_ended = {"ref_id": ref_id,
+                                "reference": reference,
+                                "queries": defaultdict(list)}
+        scale_params = dict()
+
+        for pv_dict in self.data['reference']:
+            pv_name = pv_dict['name']
+            pv_min = min(pv_dict['values'])
+            pv_max = max(pv_dict['values'])
+            scale_params[pv_name] = (pv_min, pv_max)
+        
+        self.scale_params = scale_params
+        
 
     def get_scaling_parameters(self):
         """
@@ -157,7 +216,7 @@ class Dtw:
         if d_1 != d_2:
             print("Number of features not coherent between reference ({0}) and query ({1})"
                   .format(d_1, d_2))
-            return
+            return None
 
         distance_matrix = pairwise_distances(
             X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs, w=self.data['feat_weights']
@@ -165,7 +224,7 @@ class Dtw:
 
         return distance_matrix
 
-    def comp_acc_dist_matrix(self, distance_matrix, step_pattern='symmetricP05'):
+    def comp_acc_dist_matrix(self, distance_matrix, step_pattern='symmetricP05', open_ended=False):
         """
         Computes the accumulated distance matrix starting from the distance_matrix according to the
         step_pattern indicated
@@ -175,13 +234,18 @@ class Dtw:
         """
         ref_len, query_len = distance_matrix.shape
         acc_dist_matrix = np.empty((ref_len, query_len))
+        if not open_ended:
+            for i in np.arange(ref_len):
+                for j in np.arange(query_len):
+                    acc_dist_matrix[i, j] = self.comp_acc_element(
+                        i, j, acc_dist_matrix, distance_matrix, step_pattern)\
+                        if self.itakura(i, j, ref_len, query_len, step_pattern) else np.inf
 
-        for i in np.arange(ref_len):
-            for j in np.arange(query_len):
-                acc_dist_matrix[i, j] = self.comp_acc_element(
-                    i, j, acc_dist_matrix, distance_matrix, step_pattern)\
-                    if self.itakura(i, j, ref_len, query_len, step_pattern) else np.inf
-
+        else:
+            for i in np.arange(ref_len):
+                for j in np.arange(query_len):
+                    acc_dist_matrix[i, j] = self.comp_acc_element(
+                        i, j, acc_dist_matrix, distance_matrix, step_pattern)
         return acc_dist_matrix
 
     def comp_acc_element(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
@@ -392,31 +456,54 @@ class Dtw:
                 print("Invalid step-pattern")
 
     def call_dtw(self, query_id, step_pattern="symmetricP05",
-                 n_jobs=1, open_ended=False, get_results=False):
+                 n_jobs=1, open_ended=False, get_results=False, length = 0):
         """
         Calls the dtw method on the data stored in the .data attribute (needs only the query_id in \
         addition to standard parameters)
         get_results if True returns the distance and the warping calculated; if False, \
         only the .data attribute is updated
         """
-        if step_pattern in self.data['warpings_per_step_pattern']:
-            if query_id in self.data['warpings_per_step_pattern'][step_pattern]:
+        if not open_ended:
+            if step_pattern in self.data['warpings_per_step_pattern']:
+                if query_id in self.data['warpings_per_step_pattern'][step_pattern]:
+                    return
+    
+            reference_ts = self.convert_to_mvts(self.data['reference'])
+            query_ts = self.convert_to_mvts(self.data['queries'][query_id])
+    
+            result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
+    
+            self.data["warpings"][query_id] = result["warping"]
+            self.data["distances"][query_id] = result["DTW_distance"]
+            self.data['time_distortion'][step_pattern][query_id] = \
+                self.time_distortion(result['warping'])
+            self.data['distance_distortion'][step_pattern][query_id] = result["DTW_distance"]
+            self.data['warpings_per_step_pattern'][step_pattern][query_id] = result['warping']
+    
+            if get_results:
+                return result
+            
+        if open_ended:
+            if not length:
+                print("Length cannot be 0")
                 return
-
-        reference_ts = self.convert_to_mvts(self.data['reference'])
-        query_ts = self.convert_to_mvts(self.data['queries'][query_id])
-
-        result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
-
-        self.data["warpings"][query_id] = result["warping"]
-        self.data["distances"][query_id] = result["DTW_distance"]
-        self.data['time_distortion'][step_pattern][query_id] = \
-            self.time_distortion(result['warping'])
-        self.data['distance_distortion'][step_pattern][query_id] = result["DTW_distance"]
-        self.data['warpings_per_step_pattern'][step_pattern][query_id] = result['warping']
-
-        if get_results:
-            return result
+            
+            if not self.check_open_ended(query_id, length, step_pattern):
+                
+                query_ts = self.convert_to_mvts(self.online_query(query_id, length))
+                reference_ts = self.convert_to_mvts(self.data['reference'])
+    
+                result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
+                
+                data_point = {'length': length,
+                              'DTW_distance': result['DTW_distance'],
+                              'warping':result['warping'],
+                              'step_pattern': step_pattern}
+                self.data_open_ended['queries'][query_id].append(data_point)
+        
+            if get_results:
+                return list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))[0]
+            
 
     def dtw(self, reference_ts, query_ts, step_pattern="symmetricP05",
             n_jobs=1, open_ended=False):
@@ -442,7 +529,7 @@ class Dtw:
 
         distance_matrix = self.comp_dist_matrix(reference_ts, query_ts, n_jobs)
 
-        acc_dist_matrix = self.comp_acc_dist_matrix(distance_matrix, step_pattern)
+        acc_dist_matrix = self.comp_acc_dist_matrix(distance_matrix, step_pattern, open_ended)
 
         ref_len, query_len = acc_dist_matrix.shape
         # In case of open-ended version
@@ -461,8 +548,10 @@ class Dtw:
         """
         Computes the length of the reference prefix in case of open-ended alignment
         """
+        N, M = acc_dist_matrix.shape
+        last_column = acc_dist_matrix[:, -1]/np.arange(1, N+1)
 
-        ref_prefix_len = np.argmin(acc_dist_matrix[:, -1]) + 1
+        ref_prefix_len = np.argmin(last_column) + 1
         return ref_prefix_len
 
     def distance_cost_plot(self, distance_matrix):
@@ -696,8 +785,8 @@ class Dtw:
         """
         Returns a dictionary with the weight for each variable
         """
-        vars = [pv['name'] for pv in self.data['reference']]
-        var_weight = {var: weight for var, weight in zip(vars, self.data['feat_weights'])}
+        var_names = [pv['name'] for pv in self.data['reference']]
+        var_weight = {var: weight for var, weight in zip(var_names, self.data['feat_weights'])}
         return var_weight
 
     def plot_weights(self, n=25, figsize=(15, 8)):
@@ -707,11 +796,11 @@ class Dtw:
         plt.rcdefaults()
         fig, ax = plt.subplots(figsize=figsize)
 
-        vars = sorted(list(self.get_weight_variables().items()),
+        var_names = sorted(list(self.get_weight_variables().items()),
                       key=lambda x: x[1], reverse=True)[:n]
-        names = [v[0] for v in vars]
+        names = [v[0] for v in var_names]
         y_pos = np.arange(len(names))
-        weights = [v[1] for v in vars]
+        weights = [v[1] for v in var_names]
 
         ax.barh(y_pos, weights, align='center', color='#d90000')
         ax.set_yticks(y_pos)
@@ -739,12 +828,12 @@ class Dtw:
             plt.show()
         else: print('Batch ID not found')
 
-    def warp_pv(self, pv_values, warping_function, symmetric=True):
-        if symmetric:
-            warped_pv = [pv_values[i] for i in warping_function]
-            return warped_pv
-
     def do_warp(self, ref_values, query_values, warping_path, symmetric=True):
+        """
+        Performs warping of reference and query values.
+        Symmetric: reference and query warped to common time axis
+        Asymmetric: query warped to reference time axis averaging warped elements
+        """
         query_warping = [x[1] for x in warping_path]
         ref_warping = [x[0] for x in warping_path]
 
@@ -766,18 +855,21 @@ class Dtw:
         return [warped_ref, warped_query]
 
     def plot_warped_curves(self, query_id, pv_list, step_pattern, symmetric=False):
+        """
+        Plot warping curves for all pvs in pv_list, for both reference and query batch
+        """
         if isinstance(pv_list, str):
             pv_list = [pv_list]
-            
+
         warping = self.data['warpings_per_step_pattern'][step_pattern][query_id]
         query = self.data['queries'][query_id]
         ref = self.data['reference']
-        
+
         fig = plt.figure(figsize=(12, 8))
+        
         for pv_name in pv_list:
             query_values = list(filter(lambda x: x['name'] == pv_name, query))[0]['values']
-            
-            ref_values = list(filter(lambda x: x['name'] == pv_name, ref))[0]['values']                
+            ref_values = list(filter(lambda x: x['name'] == pv_name, ref))[0]['values']
             warped_ref, warped_query = self.do_warp(ref_values, query_values, warping, symmetric)
 
             plt.plot(warped_query, color='b', label="Query")
@@ -788,48 +880,64 @@ class Dtw:
         plt.xlim((0, len(warped_ref)))
         plt.ylim((0, max(max(query_values), max(ref_values))+5))
         plt.show()
-
-
-
-def load_data(n_to_keep=50):
-    """
-    Load data of operation 3.26, only the n_to_keep batches with duration closer to the median one
-    are selected
-    """
-    data_path = "data/ope3_26.pickle"
-    with open(data_path, "rb") as infile:
-        data = pickle.load(infile)
-
-    operation_length = list()
-    pv_dataset = list()
-    for _id, pvs in data.items():
-        operation_length.append((len(pvs[0]['values']), _id))
-        pv_list = list()
-        for pv_dict in pvs:
-            pv_list.append(pv_dict['name'])
-        pv_dataset.append(pv_list)
-
-    median_len = np.median([l for l, _id in operation_length])
-
-    # Select the ref_len=50 closest to the median bacthes
-    # center around the median
-    centered = [(abs(l-median_len), _id) for l, _id in operation_length]
-    selected = sorted(centered)[:n_to_keep]
-
-    med_id = selected[0][1]  # 5153
-
-    # pop batches without all pvs
-    ids = list(data.keys())
-    for _id in ids:
-        k = len(data[_id])
-        if k != 99:
-            data.pop(_id)
-
-    all_ids = list(data.keys())
-    for _id in all_ids:
-        if _id not in [x[1] for x in selected]:
-            _ = data.pop(_id)
-
-    data['reference'] = med_id
-
-    return data
+        
+    def online_scale(self, pv_dict_online):
+        pv_name = pv_dict_online['name']
+        pv_values = np.array(pv_dict_online['values'])
+        pv_min, pv_max = self.scale_params[pv_name]
+        scaled_values = (pv_values - pv_min)/(pv_max - pv_min) if pv_max - pv_min > 10-6 else np.full(pv_values.shape, 0.5)
+        
+        return scaled_values
+    
+    def online_query(self, query_id, length):
+        query = self.data['queries'][query_id]
+        
+        cut_query = [{'name':query_pv['name'], 'values':self.online_scale({'name':query_pv['name'], 'values':query_pv['values'][:length]})} for query_pv in query]
+        
+        return cut_query
+    
+    def check_open_ended(self, query_id, length, step_pattern):
+        check_id = query_id in self.data_open_ended['queries']
+        if check_id:
+            check = bool(list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id])))
+            return check
+        else:
+            return False
+        
+    def generate_train_set(self, n_rows, step_pattern, seed=42):
+        rand_gen = np.random.RandomState(seed)
+        data_set = list()
+        id_set = list()
+        len_set = list()
+        for i in np.arange(n_rows):
+            query_id = rand_gen.choice(self.data['queriesID'])
+            id_set.append(query_id)
+            len_set.append(rand_gen.randint(low = 1, high = len(self.data['queries'][query_id][0]['values'])))
+        ref_len = len(self.data['reference'][0]['values'])
+        for query_id, length in tqdm(zip(id_set, len_set)):
+            data_point = list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))
+            if data_point:
+                data_point = copy(data_point[0])
+                data_point['ref_prefix'] = data_point['warping'][-1][0]+1
+                _= data_point.pop('warping')
+                data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
+                data_point['ref_len'] = ref_len
+                data_point['query_id'] = query_id
+                data_set.append(data_point)
+            else:
+                data_point = copy(self.call_dtw(query_id, step_pattern, open_ended =True, get_results = True, length = length))
+                data_point['ref_prefix'] = data_point['warping'][-1][0]+1
+                _ = data_point.pop('warping')
+                data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
+                data_point['ref_len'] = ref_len
+                data_point['query_id'] = query_id
+                data_set.append(data_point)
+            
+        return pd.DataFrame(data_set)
+        
+        
+        
+        
+    
+            
+    
