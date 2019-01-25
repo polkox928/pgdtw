@@ -451,7 +451,7 @@ class Dtw:
             ref_len = self.get_ref_prefix_length(acc_dist_matrix)
 
         warping = self.get_warping_path(acc_dist_matrix, step_pattern, ref_len, query_len)
-        #print('Unnormalized distance: %f\nNorm constant: %d'%(acc_dist_matrix[ref_len-1, query_len-1], ref_len+query_len))
+
         dtw_dist = acc_dist_matrix[ref_len-1, query_len-1] / (ref_len+query_len)
 
         return {"warping": warping,
@@ -461,7 +461,7 @@ class Dtw:
         """
         Computes the length of the reference prefix in case of open-ended alignment
         """
-        
+
         ref_prefix_len = np.argmin(acc_dist_matrix[:, -1]) + 1
         return ref_prefix_len
 
@@ -610,13 +610,13 @@ class Dtw:
         return {'reference': reference_ts,
                 'query': query_ts}
 
-    def weight_optimization_single_batch(self, query_id, step_pattern):
+    def weight_optimization_single_batch(self, query_id, step_pattern, n_jobs):
         """
         Optimization step regarding a single batch
         """
         reference_ts = self.convert_to_mvts(self.data['reference'])
         query_ts = self.convert_to_mvts(self.data['queries'][query_id])
-        res = self.dtw(reference_ts, query_ts, step_pattern=step_pattern)
+        res = self.dtw(reference_ts, query_ts, step_pattern=step_pattern, n_jobs=1)
         warping = res['warping']
         tot_feats = len(self.data['reference'])
         inputs = np.arange(tot_feats)
@@ -635,13 +635,13 @@ class Dtw:
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        num_cores = multiprocessing.cpu_count() - 1
+        num_cores = min(n_jobs, multiprocessing.cpu_count() - 1)
         weights = Parallel(n_jobs=num_cores)\
                                     (delayed(process_feats)(feat_idx) for feat_idx in inputs)
 
         return weights
 
-    def weight_optimization_step(self, step_pattern='symmetric2', update=False):
+    def weight_optimization_step(self, step_pattern='symmetric2', update=False, n_jobs=1):
         """
         Single iteration of the optimization algorithm, considering all batches in the instance
         """
@@ -651,7 +651,7 @@ class Dtw:
 
         for c, query_id in zip(np.arange(num_queries), self.data['queriesID']):
             print('Batch %d/%d' % (c+1, num_queries))
-            w_matrix[c, ] = self.weight_optimization_single_batch(query_id, step_pattern)
+            w_matrix[c, ] = self.weight_optimization_single_batch(query_id, step_pattern, n_jobs)
 
         updated_weights = np.mean(w_matrix, axis=0)
         updated_weights = updated_weights/sum(updated_weights) * tot_feats
@@ -662,18 +662,26 @@ class Dtw:
         return updated_weights
 
     def optimize_weigths(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10,\
-                                                                                     file_path=0):
+                                                                             file_path=0, n_jobs=1):
         """
         Implements the algorithm for the optimization of the weights
         """
         current_weights = self.data['feat_weights']
+        old_weights = self.data['feat_weights']
         conv_val = 1
         step = 0
 
         while conv_val > convergence_threshold and step < n_steps:
-            updated_weights = self.weight_optimization_step(step_pattern, update=True)
+            updated_weights = self.weight_optimization_step(step_pattern, update=True,\
+                                                            n_jobs=n_jobs)
+            loop_conv_val = np.linalg.norm(updated_weights - old_weights, ord=2)\
+                            / np.linalg.norm(old_weights, ord=2)
+            if loop_conv_val <= convergence_threshold*0.1:
+                print('Algorithm inside a loop')
+                break
             conv_val = np.linalg.norm(updated_weights - current_weights, ord=2)\
                 / np.linalg.norm(current_weights, ord=2)
+            old_weights = current_weights
             current_weights = updated_weights
             step += 1
             print('\nConvergence value: %0.3f\nStep: %d\n' % (conv_val, step))
@@ -681,7 +689,7 @@ class Dtw:
             if file_path:
                 with open(file_path, 'wb') as f:
                     pickle.dump(updated_weights, f, protocol=pickle.HIGHEST_PROTOCOL)
-        
+
         self.data['feat_weights'] = updated_weights
 
     def get_weight_variables(self):
@@ -730,38 +738,57 @@ class Dtw:
             plt.plot(self.data['reference'][pv_idx]['values'])
             plt.show()
         else: print('Batch ID not found')
-    
-    def warp_pv(self, pv_values, warping_function, symmetric = True):
+
+    def warp_pv(self, pv_values, warping_function, symmetric=True):
         if symmetric:
             warped_pv = [pv_values[i] for i in warping_function]
             return warped_pv
-    
-    def asymmetric_warp(self, pv_values, warping_function):
-        pass
-            
+
+    def do_warp(self, ref_values, query_values, warping_path, symmetric=True):
+        query_warping = [x[1] for x in warping_path]
+        ref_warping = [x[0] for x in warping_path]
+
+        if symmetric:
+            warped_query = [query_values[j] for j in query_warping]
+            warped_ref = [ref_values[i] for i in ref_warping]
+
+
+        if not symmetric:
+            warped_ref = ref_values
+            warped_query = list()
+            N = len(ref_values)
+            for i in range(N):
+                warp_idx = [x[1] for x in filter(lambda x: x[0] == i, warping_path)]
+                to_warp = [query_values[j] for j in warp_idx]
+
+                warped_query.append(np.mean(to_warp))
+
+        return [warped_ref, warped_query]
+
     def plot_warped_curves(self, query_id, pv_list, step_pattern, symmetric=False):
-        fig = plt.figure(figsize=(12,8))
+        if isinstance(pv_list, str):
+            pv_list = [pv_list]
+            
         warping = self.data['warpings_per_step_pattern'][step_pattern][query_id]
-        query_warping = [x[1] for x in warping]
-        ref_warping = [x[0] for x in warping]
         query = self.data['queries'][query_id]
         ref = self.data['reference']
-        if symmetric:
-            for pv_name in pv_list:
-                query_values = list(filter(lambda x: x['name']==pv_name, query))[0]['values']
-                warped_query = self.warp_pv(query_values, query_warping)
-                ref_values = list(filter(lambda x: x['name']==pv_name, ref))[0]['values']
-                warped_ref = self.warp_pv(ref_values, ref_warping)
-                
-                plt.plot(warped_query, color = 'b', label = "Query")
-                plt.plot(warped_ref, color = 'orange', label = 'Reference')
-                
+        
+        fig = plt.figure(figsize=(12, 8))
+        for pv_name in pv_list:
+            query_values = list(filter(lambda x: x['name'] == pv_name, query))[0]['values']
+            
+            ref_values = list(filter(lambda x: x['name'] == pv_name, ref))[0]['values']                
+            warped_ref, warped_query = self.do_warp(ref_values, query_values, warping, symmetric)
+
+            plt.plot(warped_query, color='b', label="Query")
+            plt.plot(warped_ref, color='orange', label='Reference')
+
         plt.legend()
         plt.title('Step pattern: %s'%step_pattern)
-        plt.xlim((0, len(warping)))
-        plt.ylim((0,max(max(query_values), max(ref_values))+5))
+        plt.xlim((0, len(warped_ref)))
+        plt.ylim((0, max(max(query_values), max(ref_values))+5))
         plt.show()
-        
+
 
 
 def load_data(n_to_keep=50):

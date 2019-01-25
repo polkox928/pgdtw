@@ -14,7 +14,7 @@ np.set_printoptions(precision=2)
 try:
     N_DATA = int(sys.argv[1])
 except LookupError as ex:
-    N_DATA = 6
+    N_DATA = 11
 
 DATA = lib.load_data(N_DATA)
 D = lib.Dtw(DATA)
@@ -24,10 +24,11 @@ file_path = 'dtwObjOptWeights%dAllFeats.pickle' % N_DATA
 try:
     with open(file_path, 'rb') as f:
         D.data['feat_weights'] = pickle.load(f)  
+    print(D.data['feat_weights'])
 except OSError as ex:
     pass
 finally:
-    D.optimize_weigths(step_pattern)
+    D.optimize_weigths(step_pattern, n_steps = 5, file_path = file_path, n_jobs=7)
     with open(file_path, 'wb') as f:
         pickle.dump(D.data['feat_weights'], f, protocol=pickle.HIGHEST_PROTOCOL)
 
