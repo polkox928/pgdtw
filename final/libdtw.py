@@ -73,7 +73,7 @@ class Dtw:
         else:
             self.convert_data_from_json(json_obj)
             self.scale_params = self.get_scaling_parameters()
-            # self.remove_const_feats()
+            self.remove_const_feats()
             self.reset_weights()
 
     def convert_data_from_json(self, json_obj):
@@ -904,35 +904,70 @@ class Dtw:
         else:
             return False
         
-    def generate_train_set(self, n_rows, step_pattern, seed=42):
+    def generate_train_set(self, n_rows=100, step_pattern='symmetricP2', n_jobs = 1, seed=42, query_id = False):
+        
         rand_gen = np.random.RandomState(seed)
         data_set = list()
         id_set = list()
         len_set = list()
-        for i in np.arange(n_rows):
-            query_id = rand_gen.choice(self.data['queriesID'])
-            id_set.append(query_id)
-            len_set.append(rand_gen.randint(low = 1, high = len(self.data['queries'][query_id][0]['values'])))
+        if not query_id:
+            for i in np.arange(n_rows):
+                query_id = rand_gen.choice(self.data['queriesID'])
+                id_set.append(query_id)
+                len_set.append(rand_gen.randint(low = 1, high = len(self.data['queries'][query_id][0]['values'])))
+           
+        
+        else:
+                max_len = len(self.data['queries'][query_id][0]['values'])
+                id_set = [query_id]*max_len
+                len_set = np.arange(1, max_len+1)
         ref_len = len(self.data['reference'][0]['values'])
-        for query_id, length in tqdm(zip(id_set, len_set)):
-            data_point = list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))
-            if data_point:
-                data_point = copy(data_point[0])
-                data_point['ref_prefix'] = data_point['warping'][-1][0]+1
-                _= data_point.pop('warping')
-                data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
-                data_point['ref_len'] = ref_len
-                data_point['query_id'] = query_id
-                data_set.append(data_point)
-            else:
-                data_point = copy(self.call_dtw(query_id, step_pattern, open_ended =True, get_results = True, length = length))
-                data_point['ref_prefix'] = data_point['warping'][-1][0]+1
-                _ = data_point.pop('warping')
-                data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
-                data_point['ref_len'] = ref_len
-                data_point['query_id'] = query_id
-                data_set.append(data_point)
+        
+        
+        if n_jobs != 1:
+            def generate_data_point(_id_length):
+                query_id, length = _id_length
+                data_point = list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))
+                if data_point:
+                    data_point = copy(data_point[0])
+                    data_point['ref_prefix'] = data_point['warping'][-1][0]+1
+                    _= data_point.pop('warping')
+                    data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
+                    data_point['ref_len'] = ref_len
+                    data_point['query_id'] = query_id
+
+                else:
+                    data_point = copy(self.call_dtw(query_id, step_pattern, open_ended =True, get_results = True, length = length))
+                    data_point['ref_prefix'] = data_point['warping'][-1][0]+1
+                    _ = data_point.pop('warping')
+                    data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
+                    data_point['ref_len'] = ref_len
+                    data_point['query_id'] = query_id
+                    
+                return data_point
+        
+            data_set = Parallel(n_jobs = n_jobs, verbose = 5)(delayed(generate_data_point)(_id_length) for _id_length in zip(id_set, len_set))
             
+        else:
+            for query_id, length in tqdm(zip(id_set, len_set)):
+                data_point = list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))
+                if data_point:
+                    data_point = copy(data_point[0])
+                    data_point['ref_prefix'] = data_point['warping'][-1][0]+1
+                    _= data_point.pop('warping')
+                    data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
+                    data_point['ref_len'] = ref_len
+                    data_point['query_id'] = query_id
+                    data_set.append(data_point)
+                else:
+                    data_point = copy(self.call_dtw(query_id, step_pattern, open_ended =True, get_results = True, length = length))
+                    data_point['ref_prefix'] = data_point['warping'][-1][0]+1
+                    _ = data_point.pop('warping')
+                    data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
+                    data_point['ref_len'] = ref_len
+                    data_point['query_id'] = query_id
+                    data_set.append(data_point)
+                
         return pd.DataFrame(data_set)
         
         
