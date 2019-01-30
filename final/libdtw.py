@@ -73,7 +73,7 @@ class Dtw:
         else:
             self.convert_data_from_json(json_obj)
             self.scale_params = self.get_scaling_parameters()
-            self.remove_const_feats()
+            #self.remove_const_feats()
             self.reset_weights()
 
     def convert_data_from_json(self, json_obj):
