@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 from seaborn import kdeplot
 import pymc3
 
-data = lib.load_data()
+data = lib.load_data(100)
 
 D = lib.Dtw(data)
 

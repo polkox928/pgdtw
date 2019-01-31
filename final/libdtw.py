@@ -96,6 +96,7 @@ class Dtw:
                      "num_queries": len(queries),
                      "warpings": dict(),
                      "distances": dict(),
+                     'warp_dist': defaultdict(list),
                      "queriesID": list(queries.keys()),
                      "time_distortion": defaultdict(dict),
                      "distance_distortion": defaultdict(dict),
@@ -475,6 +476,10 @@ class Dtw:
     
             self.data["warpings"][query_id] = result["warping"]
             self.data["distances"][query_id] = result["DTW_distance"]
+            
+            for (i,j) in result["warping"]:
+                self.data['warp_dist'][query_id].append((i, j, result['acc_matrix'][i, j]/max(1, i+j)))
+                
             self.data['time_distortion'][step_pattern][query_id] = \
                 self.time_distortion(result['warping'])
             self.data['distance_distortion'][step_pattern][query_id] = result["DTW_distance"]
@@ -542,7 +547,8 @@ class Dtw:
         dtw_dist = acc_dist_matrix[ref_len-1, query_len-1] / (ref_len+query_len)
 
         return {"warping": warping,
-                "DTW_distance": dtw_dist}
+                "DTW_distance": dtw_dist,
+                'acc_matrix': acc_dist_matrix}
 
     def get_ref_prefix_length(self, acc_dist_matrix):
         """
