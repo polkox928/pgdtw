@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Fri Feb  1 14:27:34 2019
+
+@author: DEPAGRA
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Thu Jan 31 11:28:58 2019
 
 @author: DEPAGRA
@@ -22,20 +29,30 @@ with open('dtwObjOptWeights16AllFeats.pickle', 'rb') as f:
     D_weights = pickle.load(f)
 D.data['feat_weights'] = D_weights
 
+#try:
+#    with open('data/all_align100.pickle', 'rb') as f:
+#        D.data['warp_dist'] = pickle.load(f)
+#except OSError as ex:
+#    for _id in tqdm(D.data['queriesID']):
+#        D.call_dtw(_id, step_pattern=step_pattern, n_jobs=1)
+#
+#    with open('data/all_align100.pickle', 'wb') as f:
+#        pickle.dump(D.data['warp_dist'], f, protocol=pickle.HIGHEST_PROTOCOL)
+
 try:
-    with open('all_align100.pickle', 'rb') as f:
-        D.data['warp_dist'] = pickle.load(f)
+    with open('data/all_sub100.pickle', 'rb') as f:
+        D.data_open_ended['queries'] = pickle.load(f)
 except OSError as ex:
     for _id in tqdm(D.data['queriesID']):
-        D.call_dtw(_id, step_pattern=step_pattern, n_jobs=1)
+        D.call_dtw(_id, step_pattern=step_pattern, n_jobs=1, open_ended=True, all_sub_seq=True)
 
-    with open('all_align100.pickle', 'wb') as f:
-        pickle.dump(D.data['warp_dist'], f, protocol=pickle.HIGHEST_PROTOCOL)
-
-
+    with open('data/all_sub100.pickle', 'wb') as f:
+        pickle.dump(D.data_open_end['queries'], f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-online_id = '5110'
+
+
+
 true_length = len(data[online_id][0]['values'])
 for online_id in D.data['queriesID']:
     try:
@@ -45,6 +62,13 @@ for online_id in D.data['queriesID']:
         online_raw = D.generate_train_set(step_pattern=step_pattern, query_id=online_id, n_jobs = -1)
         online_raw.to_csv('online_data_sets/online_%s.csv'%online_id, header=True, index = False,)
 #%%
+online_id = '5243'
+try:
+    online_raw = pd.read_csv('online_data_sets/online_%s.csv'%online_id, header=0, index_col=None, dtype={'query_id': str})
+except OSError as ex:
+    print(online_id)
+    online_raw = D.generate_train_set(step_pattern=step_pattern, query_id=online_id, n_jobs = -1)
+    online_raw.to_csv('online_data_sets/online_%s.csv'%online_id, header=True, index = False,)
 estimates = list()
 for online_t in online_raw['length'].values[50:]:
     print(online_t)
@@ -64,7 +88,7 @@ for online_t in online_raw['length'].values[50:]:
             mapped_points = list(filter(lambda x: x[0]==t_prime, warp_dist))
             for (i, j, d) in mapped_points:
                 data_point = {'DTW_distance': d,
-                              'length': j+1,
+                              'length': j + 1,
                               'query_id' : _id,
                               'true_length': len(data[_id][0]['values'])}
                 data_set.append(data_point)

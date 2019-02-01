@@ -105,7 +105,8 @@ class Dtw:
 
         self.data_open_ended = {"ref_id": ref_id,
                                 "reference": reference,
-                                "queries": defaultdict(list)}
+                                "queries": defaultdict(list),
+                                'warp_dist': dict()}
         scale_params = dict()
 
         for pv_dict in self.data['reference']:
@@ -457,7 +458,7 @@ class Dtw:
                 print("Invalid step-pattern")
 
     def call_dtw(self, query_id, step_pattern="symmetricP05",
-                 n_jobs=1, open_ended=False, get_results=False, length = 0):
+                 n_jobs=1, open_ended=False, get_results=False, length = 0, all_sub_seq=False):
         """
         Calls the dtw method on the data stored in the .data attribute (needs only the query_id in \
         addition to standard parameters)
@@ -478,7 +479,7 @@ class Dtw:
             self.data["distances"][query_id] = result["DTW_distance"]
             self.data['warp_dist'][query_id]=list()
             for (i,j) in result["warping"]:
-                self.data['warp_dist'][query_id].append((i, j, result['acc_matrix'][i, j]/max(1, i+j)))
+                self.data['warp_dist'][query_id].append((i, j, result['acc_matrix'][i, j]/(i+j+2)))
 
             self.data['time_distortion'][step_pattern][query_id] = \
                 self.time_distortion(result['warping'])
@@ -489,6 +490,24 @@ class Dtw:
                 return result
 
         if open_ended:
+            # ADD ALL SUB SEQUENCE OPTION#############################
+            if all_sub_seq:
+                reference_ts = self.convert_to_mvts(self.data['reference'])
+                query_ts = self.convert_to_mvts(self.data['queries'][query_id])
+                
+                result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended=False)
+                
+                acc_dist_matrix = result['acc_matrix']
+                N, M = acc_dist_matrix.shape
+                self.data_open_ended['warp_dist'][query_id] = list()
+                for j in np.arange(M):
+                    candidate = acc_dist_matrix[:, j]
+                    candidate /= np.arange(2, N+2) + j
+                    i_min, dtw_dist = np.argmin(candidate), min(candidate)
+
+                    self.data_open_ended['warp_dist'][query_id].append((i_min, j, dtw_dist))
+                return
+                
             if not length:
                 print("Length cannot be 0")
                 return
