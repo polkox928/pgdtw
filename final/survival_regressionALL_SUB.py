@@ -25,7 +25,7 @@ step_pattern = 'symmetricP2'
 
 D = lib.Dtw(data)
 
-with open('dtwObjOptWeights6AllFeats.pickle', 'rb') as f:
+with open('dtwObjOptWeights16AllFeats.pickle', 'rb') as f:
     D_weights = pickle.load(f)
 D.data['feat_weights'] = D_weights
 
@@ -58,8 +58,8 @@ for online_id in D.data['queriesID']:
 
 
 #%%
-online_id = '5132'
-for online_id in D.data['queries']:
+np.random.shuffle(D.data['queriesID'])
+for online_id in D.data['queriesID']:
     true_length = len(data[online_id][0]['values'])
     try:
         with open('estimates_all_sub/%s.pickle'%online_id, 'rb') as f:
@@ -69,12 +69,13 @@ for online_id in D.data['queries']:
         try:
             online_raw = pd.read_csv('online_data_sets/online_%s_%s.csv'%(online_id, step_pattern), header=0, index_col=None, dtype={'query_id': str})
         except OSError as ex:
-            print('\n')
+            
             online_raw = D.generate_train_set(step_pattern=step_pattern, query_id=online_id, n_jobs = -1, open_ended=True, all_sub_seq=True)
             online_raw.to_csv('online_data_sets/online_%s_%s.csv'%(online_id, step_pattern), header=True, index = False,)
         estimates = list()
         for online_t in online_raw['length'].values[50:]:
             print('\n')
+            print(online_id)
             t_prime = online_raw.loc[online_raw['length']==online_t, 'ref_prefix'].values[0] - 1
 
             try:
@@ -179,19 +180,22 @@ for online_id in D.data['queries']:
             lm = LinearRegression().fit(x, y)
             est = lm.predict(loc)
             estimates.append(est[0][0]+online_t)
-            print('t: %d\tT: %d\test: %d\tavg: %0.f'%(online_t, true_length, est[0][0]+online_t, pd.Series(estimates).rolling(5).mean().fillna(method='bfill').values[-1]))
+            print('t: %d\tT: %d\test: %d\tavg: %0.f'%(online_t, true_length, est[0][0]+online_t, pd.Series(estimates).rolling(60).mean().fillna(method='bfill').values[-1]))
 
         with open('estimates_all_sub/%s.pickle'%online_id, 'wb') as f:
             pickle.dump(estimates, f)
     #fig = plt.figure()
-        plt.plot(np.arange(51, true_length+1), estimates)
-        plt.plot(np.arange(51, true_length+1), pd.Series(estimates).rolling(60).mean().fillna(method='bfill'), color = 'r')
-        plt.plot(x=[51, true_length], y=[51, true_length], color = "gray")
-        plt.hlines(true_length, 51, 51+len(estimates))
-        plt.xlim((51, true_length))
-        plt.title(online_id)
-        plt.savefig('pics/all_sub/%s.png'%online_id)
-        plt.close()
+    plt.plot(np.arange(51, true_length+1), estimates, label = 'Estimate')
+    plt.plot(np.arange(51, true_length+1), pd.Series(estimates).rolling(60).mean().fillna(method='bfill'), color = 'r', label = '60mins MA estimate')
+    plt.plot(x=[51, true_length], y=[51, true_length], color = "gray")
+    plt.hlines(true_length+np.sqrt(true_length), 51, true_length, color = 'grey', label = '+- Poisson SD')
+    plt.hlines(true_length-np.sqrt(true_length), 51, true_length, color = 'grey')
+    plt.hlines(true_length, 51, 51+len(estimates), label = 'True value')
+    plt.legend()
+    plt.xlim((51, true_length))
+    plt.title(online_id)
+    plt.savefig('pics/all_sub/%s.png'%online_id)
+    plt.close()
 
 
     #pd.Series(estimates).rolling(5).mean().fillna(0)
