@@ -25,7 +25,7 @@ step_pattern = 'symmetricP2'
 
 D = lib.Dtw(data)
 
-with open('dtwObjOptWeights16AllFeats.pickle', 'rb') as f:
+with open('dtwObjOptWeights6AllFeats.pickle', 'rb') as f:
     D_weights = pickle.load(f)
 D.data['feat_weights'] = D_weights
 
@@ -69,7 +69,7 @@ for online_id in D.data['queriesID']:
         try:
             online_raw = pd.read_csv('online_data_sets/online_%s_%s.csv'%(online_id, step_pattern), header=0, index_col=None, dtype={'query_id': str})
         except OSError as ex:
-            
+
             online_raw = D.generate_train_set(step_pattern=step_pattern, query_id=online_id, n_jobs = -1, open_ended=True, all_sub_seq=True)
             online_raw.to_csv('online_data_sets/online_%s_%s.csv'%(online_id, step_pattern), header=True, index = False,)
         estimates = list()
