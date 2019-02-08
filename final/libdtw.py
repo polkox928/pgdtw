@@ -72,8 +72,8 @@ class Dtw:
             pass
         else:
             self.convert_data_from_json(json_obj)
-            self.scale_params = self.get_scaling_parameters()
-            #self.remove_const_feats()
+            #self.scale_params = self.get_scaling_parameters()
+            self.remove_const_feats()
             self.reset_weights()
 
     def convert_data_from_json(self, json_obj):
@@ -160,8 +160,7 @@ class Dtw:
             if abs(avg_range[0]-avg_range[1]) < 1e-6:
                 const_feats.append(pv_name)
 
-        ids = list(self.data['queries'].keys())
-        for _id in ids:
+        for _id in list(self.data['queries'].keys()):
             self.data['queries'][_id] = [pv_dict for pv_dict in self.data['queries']
                                          [_id] if pv_dict['name'] not in const_feats]
 
@@ -182,8 +181,8 @@ class Dtw:
             else:
                 scaled_pv_values = .5 * np.ones(len(pv_values))
         elif mode == "group":
-            avg_min, avg_max = self.scale_params[pv_name]
-            scaled_pv_values = (np.array(pv_values)-avg_min)/(avg_max-avg_min)
+            pv_min, pv_max = self.scale_params[pv_name]
+            scaled_pv_values = (np.array(pv_values)-pv_min)/(pv_max-pv_min)
         return scaled_pv_values
 
     def convert_to_mvts(self, batch):     # mvts = Multi Variate Time Series

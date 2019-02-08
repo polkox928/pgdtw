@@ -25,7 +25,7 @@ step_pattern = 'symmetricP2'
 
 D = lib.Dtw(data)
 
-with open('dtwObjOptWeights6AllFeats.pickle', 'rb') as f:
+with open('dtwObjOptWeights16AllFeats.pickle', 'rb') as f:
     D_weights = pickle.load(f)
 D.data['feat_weights'] = D_weights
 

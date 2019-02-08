@@ -66,6 +66,7 @@ plt.xticks(rotation = 90)
 plt.show()
 print('Fraction of absolute-better-than-naive: %0.3f'%np.mean(np.array(absolute_better_than_naive)))
 print('Fraction of average-better-than-naive: %0.3f'%np.mean(np.array(average_better_than_naive)))
+print(avg_naive)
 
 
 # Interpolation
