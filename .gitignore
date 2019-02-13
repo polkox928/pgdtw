@@ -3,5 +3,5 @@
 *.png
 *.txt
 *.zip
-final/*
+final/env/*
 venv/
