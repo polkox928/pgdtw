@@ -9,8 +9,8 @@ from copy import copy
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
-import matplotlib.pyplot as plt
-import matplotlib
+#import matplotlib.pyplot as plt
+#import matplotlib
 from joblib import Parallel, delayed
 import pandas as pd
 from tqdm import tqdm
@@ -171,8 +171,9 @@ class Dtw:
             if len(self.data['queries'][_id]) != len(self.data['reference']):
                 _ = self.data['queries'].pop(_id)
         print('Number of queries after filtering: %d'%len(self.data['queries']))
-        self.data['num_queries'] = len(self.data['queries'])
 
+        self.data['num_queries'] = len(self.data['queries'])
+        self.data['queriesID'] = list(self.data['queries'].keys())
 
     def scale_pv(self, pv_name, pv_values, mode="single"):
         """
@@ -735,10 +736,12 @@ class Dtw:
         """
         reference_ts = self.convert_to_mvts(self.data['reference'])
         query_ts = self.convert_to_mvts(self.data['queries'][query_id])
-        res = self.dtw(reference_ts, query_ts, step_pattern=step_pattern, n_jobs=1)
+        res = self.dtw(reference_ts, query_ts, step_pattern=step_pattern, n_jobs=-1)
         warping = res['warping']
         tot_feats = len(self.data['reference'])
         inputs = np.arange(tot_feats)
+
+        num_cores = min(n_jobs, multiprocessing.cpu_count() - 1)
 
         def process_feats(feat_idx):
             """
@@ -747,15 +750,14 @@ class Dtw:
             single_feats = self.extract_single_feat(feat_idx, query_id)
             reference = single_feats['reference']
             query = single_feats['query']
-            local_distance_matrix = self.comp_dist_matrix(reference, query)
+            local_distance_matrix = self.comp_dist_matrix(reference, query, num_cores)
 
             mld = self.compute_mld(local_distance_matrix, warping)
 
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        num_cores = min(n_jobs, multiprocessing.cpu_count() - 1)
-        weights = Parallel(n_jobs=num_cores)\
+        weights = Parallel(n_jobs=1)\
                                     (delayed(process_feats)(feat_idx) for feat_idx in inputs)
 
         return weights
@@ -768,7 +770,8 @@ class Dtw:
         num_queries = self.data['num_queries']
         w_matrix = np.empty((num_queries, tot_feats))
 
-        for c, query_id in tqdm(zip(np.arange(num_queries), self.data['queriesID']), desc = 'Batch processing', leave = False, total=num_queries):
+        for c, query_id in tqdm(zip(np.arange(num_queries), self.data['queriesID']), desc='Batch Processing', total=num_queries, leave=False):
+            #print('\rBatch %3d/%3d'%(c+1, num_queries), end = '')
             w_matrix[c, ] = self.weight_optimization_single_batch(query_id, step_pattern, n_jobs)
 
         updated_weights = np.mean(w_matrix, axis=0)
