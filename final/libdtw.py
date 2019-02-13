@@ -43,11 +43,11 @@ def load_data(n_to_keep=50):
     med_id = selected[0][1]  # 5153
 
     # pop batches without all pvs
-    ids = list(data.keys())
-    for _id in ids:
-        k = len(data[_id])
-        if k != 99:
-            data.pop(_id)
+    # ids = list(data.keys())
+    # for _id in ids:
+    #     k = len(data[_id])
+    #     if k != 99:
+    #         data.pop(_id)
 
     all_ids = list(data.keys())
     for _id in all_ids:
@@ -151,6 +151,7 @@ class Dtw:
 
         return scale_params
 
+
     def remove_const_feats(self):
         """
         Removes non-informative features (features with low variability)
@@ -160,12 +161,18 @@ class Dtw:
             if abs(avg_range[0]-avg_range[1]) < 1e-6:
                 const_feats.append(pv_name)
 
-        for _id in list(self.data['queries'].keys()):
-            self.data['queries'][_id] = [pv_dict for pv_dict in self.data['queries']
-                                         [_id] if pv_dict['name'] not in const_feats]
+        initial_queries = list(self.data['queries'].keys())
+        print('Number of queries before filtering: %d'%len(initial_queries))
 
-        self.data['reference'] = [pv_dict for pv_dict in self.data['reference']
-                                  if pv_dict['name'] not in const_feats]
+        self.data['reference'] = list(filter(lambda x: x['name'] not in const_feats, self.data['reference']))
+
+        for _id in initial_queries:
+            self.data['queries'][_id] = list(filter(lambda x: x['name'] not in const_feats, self.data['queries'][_id]))
+            if len(self.data['queries'][_id]) != len(self.data['reference']):
+                _ = self.data['queries'].pop(_id)
+        print('Number of queries after filtering: %d'%len(self.data['queries']))
+        self.data['num_queries'] = len(self.data['queries'])
+
 
     def scale_pv(self, pv_name, pv_values, mode="single"):
         """
@@ -196,7 +203,7 @@ class Dtw:
         mvts = np.zeros((k, num_feat))
 
         for (i, pv_dict) in zip(np.arange(num_feat), batch):
-            mvts[:, i] = self.scale_pv(pv_dict['name'], pv_dict['values'], "single")
+            mvts[:, i] = self.scale_pv(pv_dict['name'], pv_dict['values'], "group")
 
         return mvts
 
@@ -493,9 +500,9 @@ class Dtw:
             if all_sub_seq:
                 reference_ts = self.convert_to_mvts(self.data['reference'])
                 query_ts = self.convert_to_mvts(self.data['queries'][query_id])
-                
+
                 result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended=False)
-                
+
                 acc_dist_matrix = result['acc_matrix']
                 N, M = acc_dist_matrix.shape
                 self.data_open_ended['warp_dist'][query_id] = list()
@@ -506,7 +513,7 @@ class Dtw:
 
                     self.data_open_ended['warp_dist'][query_id].append((i_min, j, dtw_dist))
                 return
-                
+
             if not length:
                 print("Length cannot be 0")
                 return
@@ -715,10 +722,9 @@ class Dtw:
         """
         Accessory method for selecting single features from the dataset
         """
-        reference_ts = np.array(self.scale_pv(" ", self.data['reference'][feat_idx]['values'])\
-                                ).reshape(-1, 1)
-        query_ts = np.array(self.scale_pv(" ", self.data['queries'][query_id][feat_idx]['values'])\
-                            ).reshape(-1, 1)
+        pv_name = self.data['reference'][feat_idx]['name']
+        reference_ts = np.array(self.scale_pv(pv_name, self.data['reference'][feat_idx]['values'], mode = 'group')).reshape(-1, 1)
+        query_ts = np.array(self.scale_pv(pv_name, self.data['queries'][query_id][feat_idx]['values'], mode = 'group')).reshape(-1, 1)
 
         return {'reference': reference_ts,
                 'query': query_ts}
@@ -762,8 +768,7 @@ class Dtw:
         num_queries = self.data['num_queries']
         w_matrix = np.empty((num_queries, tot_feats))
 
-        for c, query_id in zip(np.arange(num_queries), self.data['queriesID']):
-            print('Batch %d/%d' % (c+1, num_queries))
+        for c, query_id in tqdm(zip(np.arange(num_queries), self.data['queriesID']), desc = 'Batch processing', leave = False, total=num_queries):
             w_matrix[c, ] = self.weight_optimization_single_batch(query_id, step_pattern, n_jobs)
 
         updated_weights = np.mean(w_matrix, axis=0)
@@ -774,7 +779,7 @@ class Dtw:
 
         return updated_weights
 
-    def optimize_weigths(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10,\
+    def optimize_weights(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10,\
                                                                              file_path=0, n_jobs=1):
         """
         Implements the algorithm for the optimization of the weights
@@ -993,9 +998,3 @@ class Dtw:
                     data_set.append(data_point)
 
         return pd.DataFrame(data_set)
-
-
-
-
-
-

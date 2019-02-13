@@ -3,4 +3,5 @@
 *.png
 *.txt
 *.zip
+final/*
 venv/
