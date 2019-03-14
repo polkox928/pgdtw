@@ -15,12 +15,11 @@ from joblib import Parallel, delayed
 import pandas as pd
 from tqdm import tqdm
 
-def load_data(n_to_keep=50):
+def load_data(n_to_keep=50, data_path = "data/ope3_26.pickle"):
     """
     Load data of operation 3.26, only the n_to_keep batches with duration closer to the median one
     are selected
     """
-    data_path = "data/ope3_26.pickle"
     with open(data_path, "rb") as infile:
         data = pickle.load(infile)
 
@@ -99,7 +98,7 @@ class Dtw:
     Everything related to dtw and experimentation
     """
 
-    def __init__(self, json_obj=False):
+    def __init__(self, json_obj=False, random_weights = True, scaling='group'):
         """
         Initialization of the class.
         json_obj: contains the data in the usual format
@@ -110,8 +109,8 @@ class Dtw:
             self.convert_data_from_json(deepcopy(json_obj))
             #self.scale_params = self.get_scaling_parameters()
             self.remove_const_feats()
-            self.reset_weights(random=True)
-            self.scaling = 'group'
+            self.reset_weights(random=random_weights)
+            self.scaling = scaling
 
     def convert_data_from_json(self, json_obj):
         """
@@ -160,8 +159,7 @@ class Dtw:
         self.data['num_queries'] += 1
         self.data['queriesID'].append(_id)
         self.remove_const_feats()
-        
-        
+
     def get_scaling_parameters(self):
         """
         Computes the parameters necessary for scaling the features as a 'group'.
@@ -194,7 +192,6 @@ class Dtw:
             scale_params[pv_name] = np.median(scale_params[pv_name], axis=1)
 
         return scale_params
-
 
     def remove_const_feats(self):
         """
@@ -584,7 +581,6 @@ class Dtw:
 
             if get_results:
                 return list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))[0]
-
 
     def dtw(self, reference_ts, query_ts, step_pattern="symmetricP05",
             n_jobs=1, open_ended=False):
