@@ -5,7 +5,7 @@ from collections import defaultdict
 import re
 import pickle
 import multiprocessing
-from copy import copy
+from copy import copy, deepcopy
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
@@ -92,7 +92,7 @@ def assign_ref(data):
 
     data['reference'] = med_id
 
-    return data    
+    return data
 
 class Dtw:
     """
@@ -107,10 +107,11 @@ class Dtw:
         if not json_obj:
             pass
         else:
-            self.convert_data_from_json(json_obj)
+            self.convert_data_from_json(deepcopy(json_obj))
             #self.scale_params = self.get_scaling_parameters()
             self.remove_const_feats()
-            self.reset_weights()
+            self.reset_weights(random=True)
+            self.scaling = 'group'
 
     def convert_data_from_json(self, json_obj):
         """
@@ -151,9 +152,16 @@ class Dtw:
             pv_max = max(pv_dict['values'])
             scale_params[pv_name] = (pv_min, pv_max)
 
-        self.scale_params = copy(scale_params)
+        self.scale_params = scale_params
 
-
+    def add_query(self, batch_dict):
+        _id, pvs = list(batch_dict.items())[0]
+        self.data['queries'][_id] = pvs
+        self.data['num_queries'] += 1
+        self.data['queriesID'].append(_id)
+        self.remove_const_feats()
+        
+        
     def get_scaling_parameters(self):
         """
         Computes the parameters necessary for scaling the features as a 'group'.
@@ -196,12 +204,16 @@ class Dtw:
         for pv_name, avg_range in self.scale_params.items():
             if abs(avg_range[0]-avg_range[1]) < 1e-6:
                 const_feats.append(pv_name)
+        #const_feats.append('ba_TCzWpXo')
+        #const_feats.append('ba_TCfg3Yxn')
+        #const_feats.append('ba_FQYXdr6Q0')
+
 
         initial_queries = list(self.data['queries'].keys())
         print('Number of queries before filtering: %d'%len(initial_queries))
 
         self.data['reference'] = list(filter(lambda x: x['name'] not in const_feats, self.data['reference']))
-        pv_names = [pv['name'] for pv in self.data['reference']] 
+        pv_names = [pv['name'] for pv in self.data['reference']]
         for _id in initial_queries:
             self.data['queries'][_id] = list(filter(lambda x: x['name']  in pv_names, self.data['queries'][_id]))
             if len(self.data['queries'][_id]) != len(self.data['reference']):
@@ -210,6 +222,7 @@ class Dtw:
 
         self.data['num_queries'] = len(self.data['queries'])
         self.data['queriesID'] = list(self.data['queries'].keys())
+        self.pv_names = pv_names
 
     def scale_pv(self, pv_name, pv_values, mode="single"):
         """
@@ -240,7 +253,7 @@ class Dtw:
         mvts = np.zeros((k, num_feat))
 
         for (i, pv_dict) in zip(np.arange(num_feat), batch):
-            mvts[:, i] = self.scale_pv(pv_dict['name'], pv_dict['values'], "group")
+            mvts[:, i] = self.scale_pv(pv_dict['name'], pv_dict['values'], self.scaling)
 
         return mvts
 
@@ -516,7 +529,7 @@ class Dtw:
             reference_ts = self.convert_to_mvts(self.data['reference'])
             query_ts = self.convert_to_mvts(self.data['queries'][query_id])
 
-            result = self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended)
+            result = deepcopy(self.dtw(reference_ts, query_ts, step_pattern, n_jobs, open_ended))
 
             self.data["warpings"][query_id] = result["warping"]
             self.data["distances"][query_id] = result["DTW_distance"]
@@ -525,7 +538,8 @@ class Dtw:
                 self.data['warp_dist'][query_id].append((i, j, result['acc_matrix'][i, j]/(i+j+2)))
 
             self.data['time_distortion'][step_pattern][query_id] = \
-                self.time_distortion(result['warping'])
+                copy(self.time_distortion(result['warping']))
+            #print(step_pattern, query_id, self.data['time_distortion'][step_pattern][query_id])
             self.data['distance_distortion'][step_pattern][query_id] = result["DTW_distance"]
             self.data['warpings_per_step_pattern'][step_pattern][query_id] = result['warping']
 
@@ -659,7 +673,6 @@ class Dtw:
         else:
             I = self.data['num_queries']
             avg_td = sum(self.data['time_distortion'][step_pattern].values())/I
-
             return avg_td
 
     def avg_distance(self, step_pattern):
@@ -741,9 +754,9 @@ class Dtw:
         if not random:
             weights = np.ones(n_feat)
         else:
-            weights = np.abs(np.random.normal(loc=1.0, size=n_feat))
+            weights = np.random.uniform(low=0.1, high=1, size=n_feat)
             weights = weights/sum(weights) * n_feat
-            
+
         self.data['feat_weights'] = weights
 
     def compute_mld(self, distance_matrix, warping_path):
@@ -765,8 +778,8 @@ class Dtw:
         Accessory method for selecting single features from the dataset
         """
         pv_name = self.data['reference'][feat_idx]['name']
-        reference_ts = np.array(self.scale_pv(pv_name, self.data['reference'][feat_idx]['values'], mode = 'group')).reshape(-1, 1)
-        query_ts = np.array(self.scale_pv(pv_name, self.data['queries'][query_id][feat_idx]['values'], mode = 'group')).reshape(-1, 1)
+        reference_ts = np.array(self.scale_pv(pv_name, self.data['reference'][feat_idx]['values'], mode = self.scaling)).reshape(-1, 1)
+        query_ts = np.array(self.scale_pv(pv_name, self.data['queries'][query_id][feat_idx]['values'], mode = self.scaling)).reshape(-1, 1)
 
         return {'reference': reference_ts,
                 'query': query_ts}
@@ -791,14 +804,14 @@ class Dtw:
             single_feats = self.extract_single_feat(feat_idx, query_id)
             reference = single_feats['reference']
             query = single_feats['query']
-            local_distance_matrix = self.comp_dist_matrix(reference, query, num_cores)
+            local_distance_matrix = self.comp_dist_matrix(reference, query, n_jobs=1)
 
             mld = self.compute_mld(local_distance_matrix, warping)
 
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        weights = Parallel(n_jobs=1)\
+        weights = Parallel(n_jobs=n_jobs)\
                                     (delayed(process_feats)(feat_idx) for feat_idx in inputs)
 
         return weights
@@ -840,6 +853,8 @@ class Dtw:
                             / np.linalg.norm(old_weights, ord=2)
             if loop_conv_val <= convergence_threshold*0.1:
                 print('Algorithm inside a loop')
+                with open('results_weight_opt.txt', 'a') as f:
+                    f.write('### Algorithm inside a loop ###')
                 break
             conv_val = np.linalg.norm(updated_weights - current_weights, ord=2)\
                 / np.linalg.norm(current_weights, ord=2)
@@ -851,7 +866,8 @@ class Dtw:
             if file_path:
                 with open(file_path, 'wb') as f:
                     pickle.dump(updated_weights, f, protocol=pickle.HIGHEST_PROTOCOL)
-
+            with open('results_weight_opt.txt', 'a') as f:
+                f.write('Convergence value: %0.3f\nNumber of steps: %d\n'%(conv_val, step))
         self.data['feat_weights'] = updated_weights
 
     def get_weight_variables(self):
@@ -866,7 +882,7 @@ class Dtw:
         """
         Horizontal bar chart with variables' weights sorted by magnitude
         """
-        plt.rcdefaults()
+        #plt.rcdefaults()
         fig, ax = plt.subplots(figsize=figsize)
 
         var_names = sorted(list(self.get_weight_variables().items()),
@@ -883,7 +899,7 @@ class Dtw:
         ax.set_title('Variables\' weights')
 
         fig.tight_layout()
-        plt.show()
+        #plt.show()
 
     def plot_by_name(self, _id, pv_name):
         """
@@ -894,10 +910,16 @@ class Dtw:
         if _id != self.data['ref_id']:
             pv_idx = pv_list.index(pv_name)
             plt.plot(self.data['queries'][_id][pv_idx]['values'])
+            plt.title(pv_name)
+            plt.xlabel('Time (min)')
+            plt.ylabel('PV value')
             plt.show()
         elif _id == self.data['ref_id']:
             pv_idx = pv_list.index(pv_name)
             plt.plot(self.data['reference'][pv_idx]['values'])
+            plt.title(pv_name)
+            plt.xlabel('Time (min)')
+            plt.ylabel('PV value')
             plt.show()
         else: print('Batch ID not found')
 

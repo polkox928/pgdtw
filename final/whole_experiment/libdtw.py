@@ -9,8 +9,8 @@ from copy import copy
 import numpy as np
 from sklearn.metrics.pairwise import pairwise_distances
 from scipy.spatial.distance import euclidean
-import matplotlib.pyplot as plt
-import matplotlib
+#import matplotlib.pyplot as plt
+#import matplotlib
 from joblib import Parallel, delayed
 import pandas as pd
 from tqdm import tqdm
@@ -57,42 +57,6 @@ def load_data(n_to_keep=50):
     data['reference'] = med_id
 
     return data
-
-def assign_ref(data):
-    data = copy(data)
-    operation_length = list()
-    pv_dataset = list()
-    for _id, pvs in data.items():
-        operation_length.append((len(pvs[0]['values']), _id))
-        pv_list = list()
-        for pv_dict in pvs:
-            pv_list.append(pv_dict['name'])
-        pv_dataset.append(pv_list)
-
-    median_len = np.median([l for l, _id in operation_length])
-
-    # Select the ref_len=50 closest to the median bacthes
-    # center around the median
-    centered = [(abs(l-median_len), _id) for l, _id in operation_length]
-    selected = sorted(centered)
-
-    med_id = selected[0][1]  # 5153
-
-    # pop batches without all pvs
-    # ids = list(data.keys())
-    # for _id in ids:
-    #     k = len(data[_id])
-    #     if k != 99:
-    #         data.pop(_id)
-
-    all_ids = list(data.keys())
-    for _id in all_ids:
-        if _id not in [x[1] for x in selected]:
-            _ = data.pop(_id)
-
-    data['reference'] = med_id
-
-    return data    
 
 class Dtw:
     """
@@ -151,7 +115,7 @@ class Dtw:
             pv_max = max(pv_dict['values'])
             scale_params[pv_name] = (pv_min, pv_max)
 
-        self.scale_params = copy(scale_params)
+        self.scale_params = scale_params
 
 
     def get_scaling_parameters(self):
@@ -201,9 +165,9 @@ class Dtw:
         print('Number of queries before filtering: %d'%len(initial_queries))
 
         self.data['reference'] = list(filter(lambda x: x['name'] not in const_feats, self.data['reference']))
-        pv_names = [pv['name'] for pv in self.data['reference']] 
+
         for _id in initial_queries:
-            self.data['queries'][_id] = list(filter(lambda x: x['name']  in pv_names, self.data['queries'][_id]))
+            self.data['queries'][_id] = list(filter(lambda x: x['name'] not in const_feats, self.data['queries'][_id]))
             if len(self.data['queries'][_id]) != len(self.data['reference']):
                 _ = self.data['queries'].pop(_id)
         print('Number of queries after filtering: %d'%len(self.data['queries']))
@@ -524,8 +488,7 @@ class Dtw:
             for (i,j) in result["warping"]:
                 self.data['warp_dist'][query_id].append((i, j, result['acc_matrix'][i, j]/(i+j+2)))
 
-            self.data['time_distortion'][step_pattern][query_id] = \
-                self.time_distortion(result['warping'])
+            self.data['time_distortion'][step_pattern][query_id] = self.time_distortion(result['warping'])
             self.data['distance_distortion'][step_pattern][query_id] = result["DTW_distance"]
             self.data['warpings_per_step_pattern'][step_pattern][query_id] = result['warping']
 
@@ -840,6 +803,8 @@ class Dtw:
                             / np.linalg.norm(old_weights, ord=2)
             if loop_conv_val <= convergence_threshold*0.1:
                 print('Algorithm inside a loop')
+                with open('results_weight_opt.txt', 'a') as f:
+                    f.write('### Algorithm inside a loop ###')
                 break
             conv_val = np.linalg.norm(updated_weights - current_weights, ord=2)\
                 / np.linalg.norm(current_weights, ord=2)
@@ -851,6 +816,10 @@ class Dtw:
             if file_path:
                 with open(file_path, 'wb') as f:
                     pickle.dump(updated_weights, f, protocol=pickle.HIGHEST_PROTOCOL)
+            with open('results_weight_opt.txt', 'a') as f:
+                f.write('Convergence value: %0.3f\nNumber of steps: %d\n'%(conv_val, step))
+        with open('results_weight_opt.txt', 'a') as f:
+                f.write(updated_weights)
 
         self.data['feat_weights'] = updated_weights
 

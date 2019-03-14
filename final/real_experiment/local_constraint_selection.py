@@ -30,12 +30,13 @@ if __name__ == '__main__':
             D.data['feat_weights'] = D_weights
         except OSError as ex:
             pass
-
+    print('Max P: %d'%D.get_global_p_max())
     POSSIBLE_STEP_PATTERNS = ['symmetric2', 'symmetricP05'] + ['symmetricP%s'%p for p in np.arange(1, D.get_global_p_max()+1)]
 
     RES = defaultdict(list)
     for step_pattern in POSSIBLE_STEP_PATTERNS[::-1]:
-        for _id in tqdm(D.data['queriesID'], desc=step_pattern, leave = False):
+        #print(step_pattern)
+        for _id in tqdm(D.data['queriesID'], desc=step_pattern, leave=False):
             D.call_dtw(_id, step_pattern=step_pattern, n_jobs=-1)
 
         RES[step_pattern].append(D.avg_time_distortion(step_pattern))
@@ -49,6 +50,7 @@ if __name__ == '__main__':
     RANGE_TD = min(TD), max(TD)
 
     DIST = [x[1] for x in RES.values()]
+
     RANGE_DIST = min(DIST), max(DIST)
 
     RES_SCALED = defaultdict(list)
@@ -56,14 +58,17 @@ if __name__ == '__main__':
         RES_SCALED[step_pattern] = [(RES[step_pattern][0] - RANGE_TD[0])/(RANGE_TD[1]-RANGE_TD[0])]
         RES_SCALED[step_pattern].append((RES[step_pattern][1] - RANGE_DIST[0])/(RANGE_DIST[1]-RANGE_DIST[0]))
 
-
     DISTORTIONS = [RES_SCALED[step_pattern][0] for step_pattern in POSSIBLE_STEP_PATTERNS]
     DISTANCES = [RES_SCALED[step_pattern][1] for step_pattern in POSSIBLE_STEP_PATTERNS]
     SCORE = [np.sqrt(x**2 + y**2) for x, y in zip(DISTANCES, DISTORTIONS)]
 
-    for step_pattern, score in zip(POSSIBLE_STEP_PATTERNS, SCORE):
-        print('%s Score: %0.2f'%(step_pattern, score))
-    print('Better Step Pattern: %s'%POSSIBLE_STEP_PATTERNS[np.argmin(SCORE)])
+    #print(TD)
+    #print(DIST)
+
+    for step_pattern in POSSIBLE_STEP_PATTERNS:
+        score = np.sqrt(RES_SCALED[step_pattern][0]**2 + RES_SCALED[step_pattern][1]**2)
+        print('%s Score: %0.5f\tTime Dist: %0.5f/%0.5f\t DTW Dist: %0.5f/%0.5f'%(step_pattern, score, RES[step_pattern][0], RES_SCALED[step_pattern][0], RES[step_pattern][1], RES_SCALED[step_pattern][1]))
+    #print('Better Step Pattern: %s'%POSSIBLE_STEP_PATTERNS[np.argmin(SCORE)])
 
     # X = np.arange(1, len(SCORE)+1)
     #
