@@ -10,26 +10,28 @@ from sklearn.preprocessing import MinMaxScaler
 from joblib import Parallel, delayed
 import os
 
+
 def build_structured_array(data_set):
     output = list()
     for idx, row in data_set.iterrows():
         survival_time = row['true_length'] - row['length']
         output.append((True, survival_time))
-    res = np.array(output, dtype = [('status', bool), ('time_remaining', 'f8')])
+    res = np.array(output, dtype=[('status', bool), ('time_remaining', 'f8')])
     return res
+
 
 def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
     data_set = list()
 
     for _id, warp_dist in D.data_open_ended['warp_dist'].items():
         if _id == ongoing_id:
-            mapped_points = list(filter(lambda x: (x[0]==t_ref and x[1] == t), warp_dist))
+            mapped_points = list(filter(lambda x: (x[0] == t_ref and x[1] == t), warp_dist))
         else:
-            mapped_points = list(filter(lambda x: x[0]==t_ref, warp_dist))
+            mapped_points = list(filter(lambda x: x[0] == t_ref, warp_dist))
         for (i, j, d) in mapped_points:
             data_point = {'DTW_distance': d,
                           'length': j + 1,
-                          'query_id' : _id,
+                          'query_id': _id,
                           'true_length': len(data[_id][0]['values'])}
             data_set.append(data_point)
 
@@ -37,7 +39,7 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
     data_set.index = data_set['query_id']
 
     data_y = build_structured_array(data_set)
-    data_set.drop(columns = ['query_id', 'true_length'], inplace = True)
+    data_set.drop(columns=['query_id', 'true_length'], inplace=True)
 
     for _id, row in data_set.iterrows():
         batch = D.data['queries'][_id]
@@ -46,6 +48,7 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
             data_set.at[_id, pv['name']] = pv['values'][length - 1]
 
     return (data_set, data_y)
+
 
 class Estimator:
 
@@ -59,23 +62,23 @@ class Estimator:
         self.subsample = subsample
         self.random_state = random_state
 
-
         self.dtw_obj = dtw_obj
 
     def fit(self, x_train, y_train):
         self.model = GradientBoostingSurvivalAnalysis(loss=self.loss,
-                                                 learning_rate = self.learning_rate,
-                                                 n_estimators=self.n_estimators,
-                                                 max_depth=self.max_depth,
-                                                 subsample=self.subsample,
-                                                 random_state = self.random_state)
+                                                      learning_rate=self.learning_rate,
+                                                      n_estimators=self.n_estimators,
+                                                      max_depth=self.max_depth,
+                                                      subsample=self.subsample,
+                                                      random_state=self.random_state)
 
         self.x_train = x_train
         self.y_train = y_train
 
         self.model.fit(self.x_train, self.y_train)
 
-        self.data_set = pd.concat([self.x_train, pd.Series(data=self.y_train['time_remaining'], index=self.x_train.index, name='time_remaining')], axis=1, sort = False)
+        self.data_set = pd.concat([self.x_train, pd.Series(
+            data=self.y_train['time_remaining'], index=self.x_train.index, name='time_remaining')], axis=1, sort=False)
         self.data_set['risk'] = self.model.predict(self.x_train)
 
         return self
@@ -85,9 +88,9 @@ class Estimator:
         x_new['risk'] = self.model.predict(x_new)
         query_id = list(x_new.index)[0]
         x_length = len(self.dtw_obj.data['queries'][query_id][0]['values'])
-        x_new['time_remaining'] = x_length -x_new['length']
+        x_new['time_remaining'] = x_length - x_new['length']
 
-        self.data_set_extd = pd.concat([self.data_set, x_new], axis = 0, sort = False)
+        self.data_set_extd = pd.concat([self.data_set, x_new], axis=0, sort=False)
         self.data_set_extd.sort_values(by='risk', ascending=False, inplace=True)
 
         locations = self.data_set_extd.index.get_loc(query_id)
@@ -117,12 +120,12 @@ class Estimator:
         ests = list()
 
         for loc in locs:
-#            print(locs)
-#            print([x for x, y in zip(np.arange(len(t_left)), t_left.values)])
-            xy = [(x,y) for (x, y) in zip(x_values.values, y_values.values) if x != loc]
-            x = np.array([x[0] for x in xy]).reshape(-1,1)
+            #            print(locs)
+            #            print([x for x, y in zip(np.arange(len(t_left)), t_left.values)])
+            xy = [(x, y) for (x, y) in zip(x_values.values, y_values.values) if x != loc]
+            x = np.array([x[0] for x in xy]).reshape(-1, 1)
             y = np.array([x[1] for x in xy])
-        ## Add possibility for risk as X variable
+        # Add possibility for risk as X variable
             reg = self.regressor.fit(X=x, y=np.log1p(y))
             if by == 'scaled_risk':
                 ests.append(np.expm1(reg.predict(scaler.transform(x_values.values[loc]))[0]))
