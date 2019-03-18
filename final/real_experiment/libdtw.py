@@ -207,7 +207,7 @@ class Dtw:
 
 
         initial_queries = list(self.data['queries'].keys())
-        print('Number of queries before filtering: %d'%len(initial_queries))
+        # print('Number of queries before filtering: %d'%len(initial_queries))
 
         self.data['reference'] = list(filter(lambda x: x['name'] not in const_feats, self.data['reference']))
         pv_names = [pv['name'] for pv in self.data['reference']]
@@ -215,7 +215,7 @@ class Dtw:
             self.data['queries'][_id] = list(filter(lambda x: x['name']  in pv_names, self.data['queries'][_id]))
             if len(self.data['queries'][_id]) != len(self.data['reference']):
                 _ = self.data['queries'].pop(_id)
-        print('Number of queries after filtering: %d'%len(self.data['queries']))
+        # print('Number of queries after filtering: %d'%len(self.data['queries']))
 
         self.data['num_queries'] = len(self.data['queries'])
         self.data['queriesID'] = list(self.data['queries'].keys())
