@@ -15,6 +15,7 @@ from joblib import Parallel, delayed
 import pandas as pd
 from tqdm import tqdm
 
+
 def load_data(n_to_keep=50):
     """
     Load data of operation 3.26, only the n_to_keep batches with duration closer to the median one
@@ -58,6 +59,7 @@ def load_data(n_to_keep=50):
 
     return data
 
+
 def assign_ref(data):
     data = copy(data)
     operation_length = list()
@@ -92,7 +94,8 @@ def assign_ref(data):
 
     data['reference'] = med_id
 
-    return data    
+    return data
+
 
 class Dtw:
     """
@@ -153,7 +156,6 @@ class Dtw:
 
         self.scale_params = copy(scale_params)
 
-
     def get_scaling_parameters(self):
         """
         Computes the parameters necessary for scaling the features as a 'group'.
@@ -187,7 +189,6 @@ class Dtw:
 
         return scale_params
 
-
     def remove_const_feats(self):
         """
         Removes non-informative features (features with low variability)
@@ -198,15 +199,17 @@ class Dtw:
                 const_feats.append(pv_name)
 
         initial_queries = list(self.data['queries'].keys())
-        print('Number of queries before filtering: %d'%len(initial_queries))
+        print('Number of queries before filtering: %d' % len(initial_queries))
 
-        self.data['reference'] = list(filter(lambda x: x['name'] not in const_feats, self.data['reference']))
-        pv_names = [pv['name'] for pv in self.data['reference']] 
+        self.data['reference'] = list(
+            filter(lambda x: x['name'] not in const_feats, self.data['reference']))
+        pv_names = [pv['name'] for pv in self.data['reference']]
         for _id in initial_queries:
-            self.data['queries'][_id] = list(filter(lambda x: x['name']  in pv_names, self.data['queries'][_id]))
+            self.data['queries'][_id] = list(
+                filter(lambda x: x['name'] in pv_names, self.data['queries'][_id]))
             if len(self.data['queries'][_id]) != len(self.data['reference']):
                 _ = self.data['queries'].pop(_id)
-        print('Number of queries after filtering: %d'%len(self.data['queries']))
+        print('Number of queries after filtering: %d' % len(self.data['queries']))
 
         self.data['num_queries'] = len(self.data['queries'])
         self.data['queriesID'] = list(self.data['queries'].keys())
@@ -265,7 +268,7 @@ class Dtw:
 
         distance_matrix = pairwise_distances(
             X=reference_ts, Y=query_ts, metric=euclidean, n_jobs=n_jobs, w=self.data['feat_weights']
-            )
+        )
 
         return distance_matrix
 
@@ -339,15 +342,15 @@ class Dtw:
         patt = re.compile("symmetricP[1-9]+\d*")
         if patt.match(step_pattern):
             p = int(step_pattern[10:])
-            p_1 = acc_dist_matrix[i-p, j-(p+1)] + 2*sum([distance_matrix[i-p, j-(p+1)]\
-                                             for p in np.arange(0, p)]) + distance_matrix[i, j]\
-                                                        if (i-p >= 0 and j-(p+1) >= 0) else np.inf
+            p_1 = acc_dist_matrix[i-p, j-(p+1)] + 2*sum([distance_matrix[i-p, j-(p+1)]
+                                                         for p in np.arange(0, p)]) + distance_matrix[i, j]\
+                if (i-p >= 0 and j-(p+1) >= 0) else np.inf
             p_2 = acc_dist_matrix[i-1, j-1] + \
                 2 * distance_matrix[i, j] if (i-1 >= 0 and j-1 >= 0) else np.inf
-            p_3 = acc_dist_matrix[i-(p+1), j-p] + 2*sum([distance_matrix[i-(p+1), j-p]\
-                                             for p in np.arange(0, p)]) + distance_matrix[i, j] \
-                                                                    if (i-(p+1) >= 0 and j-p >= 0) \
-                                                                                        else np.inf
+            p_3 = acc_dist_matrix[i-(p+1), j-p] + 2*sum([distance_matrix[i-(p+1), j-p]
+                                                         for p in np.arange(0, p)]) + distance_matrix[i, j] \
+                if (i-(p+1) >= 0 and j-p >= 0) \
+                else np.inf
 
             return min(p_1, p_2, p_3)  # /sum(acc_dist_matrix.shape)
 
@@ -501,7 +504,7 @@ class Dtw:
                 print("Invalid step-pattern")
 
     def call_dtw(self, query_id, step_pattern="symmetricP05",
-                 n_jobs=1, open_ended=False, get_results=False, length = 0, all_sub_seq=False):
+                 n_jobs=1, open_ended=False, get_results=False, length=0, all_sub_seq=False):
         """
         Calls the dtw method on the data stored in the .data attribute (needs only the query_id in \
         addition to standard parameters)
@@ -520,8 +523,8 @@ class Dtw:
 
             self.data["warpings"][query_id] = result["warping"]
             self.data["distances"][query_id] = result["DTW_distance"]
-            self.data['warp_dist'][query_id]=list()
-            for (i,j) in result["warping"]:
+            self.data['warp_dist'][query_id] = list()
+            for (i, j) in result["warping"]:
                 self.data['warp_dist'][query_id].append((i, j, result['acc_matrix'][i, j]/(i+j+2)))
 
             self.data['time_distortion'][step_pattern][query_id] = \
@@ -564,13 +567,12 @@ class Dtw:
 
                 data_point = {'length': length,
                               'DTW_distance': result['DTW_distance'],
-                              'warping':result['warping'],
+                              'warping': result['warping'],
                               'step_pattern': step_pattern}
                 self.data_open_ended['queries'][query_id].append(data_point)
 
             if get_results:
-                return list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))[0]
-
+                return list(filter(lambda x: x['step_pattern'] == step_pattern and x['length'] == length, self.data_open_ended['queries'][query_id]))[0]
 
     def dtw(self, reference_ts, query_ts, step_pattern="symmetricP05",
             n_jobs=1, open_ended=False):
@@ -606,7 +608,8 @@ class Dtw:
 
         warping = self.get_warping_path(acc_dist_matrix, step_pattern, ref_len, query_len)
 
-        dtw_dist = acc_dist_matrix[ref_len-1, query_len-1] / (ref_len+query_len)
+        dtw_dist = acc_dist_matrix[ref_len-1, query_len-1] / (
+            ref_len+query_len) if step_pattern != "symmetric1" else acc_dist_matrix[ref_len-1, query_len-1]
 
         return {"warping": warping,
                 "DTW_distance": dtw_dist,
@@ -743,7 +746,7 @@ class Dtw:
         else:
             weights = np.abs(np.random.normal(loc=1.0, size=n_feat))
             weights = weights/sum(weights) * n_feat
-            
+
         self.data['feat_weights'] = weights
 
     def compute_mld(self, distance_matrix, warping_path):
@@ -765,8 +768,10 @@ class Dtw:
         Accessory method for selecting single features from the dataset
         """
         pv_name = self.data['reference'][feat_idx]['name']
-        reference_ts = np.array(self.scale_pv(pv_name, self.data['reference'][feat_idx]['values'], mode = 'group')).reshape(-1, 1)
-        query_ts = np.array(self.scale_pv(pv_name, self.data['queries'][query_id][feat_idx]['values'], mode = 'group')).reshape(-1, 1)
+        reference_ts = np.array(self.scale_pv(
+            pv_name, self.data['reference'][feat_idx]['values'], mode='group')).reshape(-1, 1)
+        query_ts = np.array(self.scale_pv(
+            pv_name, self.data['queries'][query_id][feat_idx]['values'], mode='group')).reshape(-1, 1)
 
         return {'reference': reference_ts,
                 'query': query_ts}
@@ -798,8 +803,7 @@ class Dtw:
             weight = mld['offpath']/mld['onpath'] if mld['onpath'] > 1e-6 else 1.0
             return weight
 
-        weights = Parallel(n_jobs=1)\
-                                    (delayed(process_feats)(feat_idx) for feat_idx in inputs)
+        weights = Parallel(n_jobs=1)(delayed(process_feats)(feat_idx) for feat_idx in inputs)
 
         return weights
 
@@ -823,8 +827,8 @@ class Dtw:
 
         return updated_weights
 
-    def optimize_weights(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10,\
-                                                                             file_path=0, n_jobs=1):
+    def optimize_weights(self, step_pattern='symmetric2', convergence_threshold=0.01, n_steps=10,
+                         file_path=0, n_jobs=1):
         """
         Implements the algorithm for the optimization of the weights
         """
@@ -834,10 +838,10 @@ class Dtw:
         step = 0
 
         while conv_val > convergence_threshold and step < n_steps:
-            updated_weights = self.weight_optimization_step(step_pattern, update=True,\
+            updated_weights = self.weight_optimization_step(step_pattern, update=True,
                                                             n_jobs=n_jobs)
             loop_conv_val = np.linalg.norm(updated_weights - old_weights, ord=2)\
-                            / np.linalg.norm(old_weights, ord=2)
+                / np.linalg.norm(old_weights, ord=2)
             if loop_conv_val <= convergence_threshold*0.1:
                 print('Algorithm inside a loop')
                 break
@@ -870,7 +874,7 @@ class Dtw:
         fig, ax = plt.subplots(figsize=figsize)
 
         var_names = sorted(list(self.get_weight_variables().items()),
-                      key=lambda x: x[1], reverse=True)[:n]
+                           key=lambda x: x[1], reverse=True)[:n]
         names = [v[0] for v in var_names]
         y_pos = np.arange(len(names))
         weights = [v[1] for v in var_names]
@@ -899,7 +903,8 @@ class Dtw:
             pv_idx = pv_list.index(pv_name)
             plt.plot(self.data['reference'][pv_idx]['values'])
             plt.show()
-        else: print('Batch ID not found')
+        else:
+            print('Batch ID not found')
 
     def do_warp(self, ref_values, query_values, warping_path, symmetric=True):
         """
@@ -913,7 +918,6 @@ class Dtw:
         if symmetric:
             warped_query = [query_values[j] for j in query_warping]
             warped_ref = [ref_values[i] for i in ref_warping]
-
 
         if not symmetric:
             warped_ref = ref_values
@@ -949,7 +953,7 @@ class Dtw:
             plt.plot(warped_ref, color='orange', label='Reference')
 
         plt.legend()
-        plt.title('Step pattern: %s'%step_pattern)
+        plt.title('Step pattern: %s' % step_pattern)
         plt.xlim((0, len(warped_ref)))
         plt.ylim((0, max(max(query_values), max(ref_values))+5))
         plt.show()
@@ -958,26 +962,29 @@ class Dtw:
         pv_name = pv_dict_online['name']
         pv_values = np.array(pv_dict_online['values'])
         pv_min, pv_max = self.scale_params[pv_name]
-        scaled_values = (pv_values - pv_min)/(pv_max - pv_min) if pv_max - pv_min > 10-6 else np.full(pv_values.shape, 0.5)
+        scaled_values = (pv_values - pv_min)/(pv_max - pv_min) if pv_max - \
+            pv_min > 10-6 else np.full(pv_values.shape, 0.5)
 
         return scaled_values
 
     def online_query(self, query_id, length):
         query = self.data['queries'][query_id]
 
-        cut_query = [{'name':query_pv['name'], 'values':self.online_scale({'name':query_pv['name'], 'values':query_pv['values'][:length]})} for query_pv in query]
+        cut_query = [{'name': query_pv['name'], 'values':self.online_scale(
+            {'name': query_pv['name'], 'values':query_pv['values'][:length]})} for query_pv in query]
 
         return cut_query
 
     def check_open_ended(self, query_id, length, step_pattern):
         check_id = query_id in self.data_open_ended['queries']
         if check_id:
-            check = bool(list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id])))
+            check = bool(list(filter(
+                lambda x: x['step_pattern'] == step_pattern and x['length'] == length, self.data_open_ended['queries'][query_id])))
             return check
         else:
             return False
 
-    def generate_train_set(self, n_rows=100, step_pattern='symmetricP2', n_jobs = 1, seed=42, query_id = False):
+    def generate_train_set(self, n_rows=100, step_pattern='symmetricP2', n_jobs=1, seed=42, query_id=False):
 
         rand_gen = np.random.RandomState(seed)
         data_set = list()
@@ -987,30 +994,31 @@ class Dtw:
             for i in np.arange(n_rows):
                 query_id = rand_gen.choice(self.data['queriesID'])
                 id_set.append(query_id)
-                len_set.append(rand_gen.randint(low = 1, high = len(self.data['queries'][query_id][0]['values'])))
-
+                len_set.append(rand_gen.randint(low=1, high=len(
+                    self.data['queries'][query_id][0]['values'])))
 
         else:
-                max_len = len(self.data['queries'][query_id][0]['values'])
-                id_set = [query_id]*max_len
-                len_set = np.arange(1, max_len+1)
+            max_len = len(self.data['queries'][query_id][0]['values'])
+            id_set = [query_id]*max_len
+            len_set = np.arange(1, max_len+1)
         ref_len = len(self.data['reference'][0]['values'])
-
 
         if n_jobs != 1:
             def generate_data_point(_id_length):
                 query_id, length = _id_length
-                data_point = list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))
+                data_point = list(filter(
+                    lambda x: x['step_pattern'] == step_pattern and x['length'] == length, self.data_open_ended['queries'][query_id]))
                 if data_point:
                     data_point = copy(data_point[0])
                     data_point['ref_prefix'] = data_point['warping'][-1][0]+1
-                    _= data_point.pop('warping')
+                    _ = data_point.pop('warping')
                     data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
                     data_point['ref_len'] = ref_len
                     data_point['query_id'] = query_id
 
                 else:
-                    data_point = copy(self.call_dtw(query_id, step_pattern, open_ended =True, get_results = True, length = length))
+                    data_point = copy(self.call_dtw(query_id, step_pattern,
+                                                    open_ended=True, get_results=True, length=length))
                     data_point['ref_prefix'] = data_point['warping'][-1][0]+1
                     _ = data_point.pop('warping')
                     data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
@@ -1019,21 +1027,24 @@ class Dtw:
 
                 return data_point
 
-            data_set = Parallel(n_jobs = n_jobs, verbose = 5)(delayed(generate_data_point)(_id_length) for _id_length in zip(id_set, len_set))
+            data_set = Parallel(n_jobs=n_jobs, verbose=5)(
+                delayed(generate_data_point)(_id_length) for _id_length in zip(id_set, len_set))
 
         else:
             for query_id, length in tqdm(zip(id_set, len_set)):
-                data_point = list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id]))
+                data_point = list(filter(
+                    lambda x: x['step_pattern'] == step_pattern and x['length'] == length, self.data_open_ended['queries'][query_id]))
                 if data_point:
                     data_point = copy(data_point[0])
                     data_point['ref_prefix'] = data_point['warping'][-1][0]+1
-                    _= data_point.pop('warping')
+                    _ = data_point.pop('warping')
                     data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
                     data_point['ref_len'] = ref_len
                     data_point['query_id'] = query_id
                     data_set.append(data_point)
                 else:
-                    data_point = copy(self.call_dtw(query_id, step_pattern, open_ended =True, get_results = True, length = length))
+                    data_point = copy(self.call_dtw(query_id, step_pattern,
+                                                    open_ended=True, get_results=True, length=length))
                     data_point['ref_prefix'] = data_point['warping'][-1][0]+1
                     _ = data_point.pop('warping')
                     data_point['true_length'] = len(self.data['queries'][query_id][0]['values'])
