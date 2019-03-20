@@ -101,7 +101,20 @@ class Dtw:
     def __init__(self, json_obj=False, random_weights = True, scaling='group'):
         """
         Initialization of the class.
-        json_obj: contains the data in the usual format
+
+        Parameters
+        ----------
+        json_obj : Dict
+                    Dictionary of the form {query_id1 : list_of_PVs1, ..., query_idN : list_of_PVsN,
+                                            'reference' : reference_id}
+        random_weights : Boolean
+                    If True, initialize the variables weights to a random number
+                                                                        in the [0.1, 1] interval
+                    If False, weights are initialized to 1.0
+        scaling : String
+                    If 'group', scales the PVs according to the range of the respective PV
+                                                                            in the reference batch
+                    If 'single', the PV values are scaled to the [0, 1] interval
         """
         if not json_obj:
             pass
@@ -120,6 +133,13 @@ class Dtw:
         queries: list of dictionaries in which the keys are the query batch's ID and the values are
         the actual batches (list of dictionaries)
         num_queries: number of query batches in the data set
+
+        Parameters
+        ----------
+
+        json_obj : Dict
+                    Dictionary of the form {query_id1 : list_of_PVs1, ..., query_idN : list_of_PVsN,
+                                            'reference' : reference_id}
         """
         ref_id = json_obj["reference"]
         reference = json_obj[ref_id]
@@ -154,10 +174,16 @@ class Dtw:
         self.scale_params = scale_params
 
     def add_query(self, batch_dict):
+        """
+        Adds a query batch to the Dtw object. After adding, it filters the PVs it contatins.
+        It's possible the batch is discarded because it does not contain all the needed PVs.
+
+        Parameters
+        ----------
+        batch_dict : Dictionary of the form {query_id: list_of_PVs_dictionaries}
+        """
         _id, pvs = list(batch_dict.items())[0]
         self.data['queries'][_id] = pvs
-        self.data['num_queries'] += 1
-        self.data['queriesID'].append(_id)
         self.remove_const_feats()
 
     def get_scaling_parameters(self):
@@ -168,6 +194,10 @@ class Dtw:
         maximum are too spread out. This method is here just in case of future use and to help
         removing non-informative (constant) features.
         avg_range = [avg_min, avg_max]
+
+        Returns
+        -------
+        scale_parameters : dictionary of the form {pv_name : [pv_min, pv_max]}
         """
         scale_params = dict()
 
@@ -195,7 +225,7 @@ class Dtw:
 
     def remove_const_feats(self):
         """
-        Removes non-informative features (features with low variability)
+        Removes non-informative features (features with low variability == constant features)
         """
         const_feats = list()
         for pv_name, avg_range in self.scale_params.items():
@@ -226,6 +256,24 @@ class Dtw:
         Scales features in two possible ways:
             'single': the feature is scaled according to the values it assumes in the current batch
             'group': the feature is scaled according to its average range across the whole data set
+
+        Parameters
+        ----------
+        pv_name : String
+                    Name of the PV being scaled. It's needed for selecting the relevant
+                                                                                scaling parameters
+        pv_values : List
+                    List of pv values
+        mode : String
+                    'single': the feature is scaled according to the values it assumes in
+                                                                                the current batch
+                    'group': the feature is scaled according to its average range across
+                                                                                the whole data set
+
+        Returns
+        -------
+        scaled_pv_values : Numpy array
+                    Array of scaled pv values
         """
         if mode == "single":
             pv_min = min(pv_values)
@@ -243,6 +291,16 @@ class Dtw:
         """
         Takes one batch in the usual form (list of one dictionary per PV) and transforms
         it to a numpy array to perform calculations faster
+
+        Parameters
+        ----------
+        batch : List
+                    List of PV dictionaries
+
+        Returns
+        -------
+        mvts : Numpy array
+                    Matrix form of a batch. Each column corresponds to a PV and each row to a sample
         """
         k = len(batch[0]['values'])  # Length of a batch (number of data points per single PV)
         num_feat = len(batch)  # Number of PVs
@@ -260,10 +318,21 @@ class Dtw:
         query_len (length of the query) number of columns (OK with convention on indices in dtw)
         with dist_measure as local distance measure
 
-        reference_ts: mvts representation of reference batch
-        query_ts: mvts representation of query batch
+        Parameters
+        ----------
+        reference_ts : Numpy array
+                    mvts representation of reference batch
+        query_ts : Numpy array
+                    mvts representation of query batch
 
-        n_jobs: number of jobs for pairwise_distances function. It could cause problems on windows
+        n_jobs : int
+                    number of jobs for pairwise_distances function. It could cause problems when
+                                                                                running on windows
+
+        Returns
+        -------
+        distance_matrix : Numpy array
+                    Local distance matrix
         """
         _, d_1 = reference_ts.shape
         _, d_2 = query_ts.shape
@@ -283,9 +352,19 @@ class Dtw:
         """
         Computes the accumulated distance matrix starting from the distance_matrix according to the
         step_pattern indicated
-        distance_matrix: cross distance matrix
-        step_pattern: string indicating the step pattern to be used. Can be symmetric1/2,
-        symmetricP05 or symmetricPX, with X any positive integer
+
+        Parameters
+        ----------
+        distance_matrix : Numpy array
+                    Local distance matrix
+        step_pattern : String
+                    String indicating the step pattern to be used. Can be symmetric1/2,
+                                        symmetricP05 or symmetricPX, with X any positive integer
+
+        Returns
+        -------
+        acc_dist_matrix : Numpy array
+                    Accumulated distance matrix
         """
         ref_len, query_len = distance_matrix.shape
         acc_dist_matrix = np.empty((ref_len, query_len))
@@ -306,11 +385,23 @@ class Dtw:
     def comp_acc_element(self, i, j, acc_dist_matrix, distance_matrix, step_pattern):
         """
         Computes the value of a cell of the accumulated distance matrix
-        i: row (reference) index
-        j: column (query) index
-        acc_dist_matrix: current accumulated distance matrix
-        distance_matrix: cross distance matrix
-        step_pattern: step pattern to be used for calculations
+
+        Parameters
+        ----------
+        i : Int
+                    row (reference) index
+        j : Int
+                    column (query) index
+        acc_dist_matrix : Numpy array
+                    Accumulated distance matrix
+        distance_matrix : Numpy array
+                    Local distance matrix
+        step_pattern : String
+                    Step pattern to be used for calculations
+
+        Returns
+        -------
+        Float. Value of the (i, j) cell of the accumulated distance matrix
         """
         if (i == 0 and j == 0):
             return distance_matrix[0, 0]
@@ -367,6 +458,22 @@ class Dtw:
         the (ref_len,query_len) point (this in order to use the method in both open_ended and global
         alignment)
         Return the warping path (list of tuples) in ascending order
+
+        Parameters
+        ----------
+        acc_dist_matrix : Numpy array
+                    Accumulated distance matrix
+        step_pattern : String
+                    Step pattern to be used
+        ref_len : Int
+                    Length of the reference prefix matched
+        query_len : Int
+                    Length of the query to consider
+
+        Returns
+        -------
+        warping_path : List
+                    List of tuples containing the warping path's steps
         """
         # ref_len, query_len = acc_dist_matrix.shape
         warping_path = list()
@@ -517,6 +624,28 @@ class Dtw:
         addition to standard parameters)
         get_results if True returns the distance and the warping calculated; if False, \
         only the .data attribute is updated
+
+        Parameters
+        ----------
+        query_id : String
+                    String indicating the ID of the query batch
+        step_pattern : String
+                    Step pattern to be used
+        n_jobs : Int
+                    Number of processor to use
+        open_ended : Boolean
+                    Indicates whether to use the open-ended version of DTW or not
+        get_results : Boolean
+                    If True, returns the results of the computation. It's different for open-ended
+                                                                                and standard version
+        length : Int
+                    Length of the query batch to be used for open-ended DTW (single call)
+        all_sub_seq : Boolean
+                    If True, appliues open-ended DTW to all sub-sequences of the query batch
+
+        Returns
+        -------
+        Results of the computations if get_results = True
         """
         if not open_ended:
             if step_pattern in self.data['warpings_per_step_pattern']:
@@ -587,6 +716,26 @@ class Dtw:
         """
         Compute alignment betwwen reference_ts and query_ts (already in mvts form).
         Separate from call_dtw() for testing purposes
+
+        Parameters
+        ----------
+        reference_ts : Numpy array
+                    mvts representation of reference batch
+        query_ts : Numpy array
+                    mvts representation of query batch
+        step_pattern : String
+                    Step pattern to be used
+        n_jobs : Int
+                    Number of cores to use
+        open_ended : Boolean
+                    If True, applies open-ended version of DTW to the whole query series
+
+        Returns
+        -------
+        Dict
+                    {"warping": warping,
+                    "DTW_distance": dtw_dist,
+                    'acc_matrix': acc_dist_matrix}
         """
         # Check for coherence of local constraint and global alignment
         # (in case a PX local constraint is used)
@@ -625,6 +774,11 @@ class Dtw:
     def get_ref_prefix_length(self, acc_dist_matrix):
         """
         Computes the length of the reference prefix in case of open-ended alignment
+
+        Parameters
+        ----------
+        acc_dist_matrix : Numpy array
+                    Accumulated distance matrix
         """
         N, M = acc_dist_matrix.shape
         last_column = acc_dist_matrix[:, -1]/np.arange(1, N+1)
@@ -635,6 +789,11 @@ class Dtw:
     def distance_cost_plot(self, distance_matrix):
         """
         Draws a heatmap of distance_matrix, nan values are colored in green
+
+        Parameters
+        ----------
+        distance_matrix : Numpy array
+                    Local or accumulated distance matrix
         """
         cmap = matplotlib.cm.inferno
         cmap.set_bad('green', .3)
@@ -650,6 +809,16 @@ class Dtw:
     def time_distortion(self, warping_path):
         """
         Computes the time distortion caused by warping_path
+
+        Parameters
+        ----------
+        warping_path : List
+                    List of tuples with warping steps
+
+        Returns
+        -------
+        Int
+                    Time distortion (sum of vertical or horizontal steps) relative to the warping path
         """
         T = len(warping_path)
         f_q = [w[1] for w in warping_path]
@@ -662,6 +831,18 @@ class Dtw:
     def avg_time_distortion(self, step_pattern):
         """
         Computes the average time distortion relative to a certain step pattern
+
+        Parameters
+        ----------
+        step_pattern : String
+                    Step pattern to look for in the Dtw object where all the time distortions
+                                                                                        are stored
+
+        Returns
+        -------
+        Float
+                    Average time distortion relative to the application of DTW with the specified
+                                                                                        step pattern
         """
         if len(self.data['time_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
@@ -673,7 +854,18 @@ class Dtw:
 
     def avg_distance(self, step_pattern):
         """
-        Computes average
+        Computes average DTW distance
+
+        Parameters
+        ----------
+        step_pattern : String
+                    Step pattern relative to which compute the average DTW distance
+
+        Returns
+        -------
+        Float
+                    Average DTW distance relative to the application of DTW with the specified
+                                                                                        step pattern
         """
         if len(self.data['distance_distortion'][step_pattern]) != self.data['num_queries']:
             print('Not every query aligned, align the remaining queries')
@@ -687,6 +879,16 @@ class Dtw:
     def get_p_max(self, query_id):
         """
         Computes the maximum value of P for the selected query batch
+
+        Parameters
+        ----------
+        query_id : String
+                    ID of the query batch under examination
+
+        Returns
+        -------
+        p_max : Int
+                    Maximum value of the P parameter that allows for a global alignment
         """
         k_q = len(self.data['queries'][query_id][0]['values'])
         k_r = len(self.data['reference'][0]['values'])
@@ -696,6 +898,12 @@ class Dtw:
     def get_global_p_max(self):
         """
         Computes the maximum value of P for the data set under consideration
+
+        Returns
+        -------
+        Int
+                    maximum value of the P parameter that allows for a global alignment between the
+                                                reference and every query batch in the Dtw object
         """
         p_maxs = [self.get_p_max(query_id) for query_id in self.data['queriesID']]
         return int(min(p_maxs))
@@ -703,6 +911,24 @@ class Dtw:
     def itakura(self, i, j, ref_len, query_len, step_pattern):
         """
         Induced Itakura global constraint for GLOBAL ALIGNMENT
+
+        Parameters
+        ----------
+        i : Int
+                    row (reference) index
+        j : Int
+                    column (query) index
+        ref_len : Int
+                    Length of the reference batch
+        query_len : Int
+                    Length of the query batch
+        step_pattern : String
+                    Step pattern to be used
+
+        Returns
+        -------
+        Boolean
+                    True if the (i, j) cell lies within the Itakura paralelogram
         """
         patt = re.compile("symmetricP[1-9]+\d*")
         if step_pattern == "symmetricP05":
@@ -745,6 +971,13 @@ class Dtw:
     def reset_weights(self, random=False):
         """
         Reset the variables' weights to 1
+
+        Parameters
+        ----------
+        random : Boolean
+                    If True, randomly initializes variables weight to uniformly sampled
+                                                                                values in [0.1, 1.0]
+                    If False, initialize variables weights to 1.0
         """
         n_feat = len(self.data['reference'])
         if not random:
@@ -759,6 +992,19 @@ class Dtw:
         """
         Compute the MLDs coefficients (mean local distance) of a certain distance_matrix relative
         to warping_path
+
+        Parameters
+        ----------
+        distance_matrix : Numpy array
+                    Local distance matrix
+        warping_path : List
+                    list of tuples containing the warping steps
+
+        Returns
+        -------
+        Dict
+                    {'onpath': Value of the mean local distance along the warping path,
+                    'offpath': Value of the mean local distance outside the warping path}
         """
         k = len(warping_path)
         on_path = [distance_matrix[i, j] for i, j in warping_path]
@@ -772,6 +1018,21 @@ class Dtw:
     def extract_single_feat(self, feat_idx, query_id):
         """
         Accessory method for selecting single features from the dataset
+
+        Parameters
+        ----------
+        feat_idx : Int
+                    Index of the PV in a batch
+        query_id : String
+                    ID of the query batch
+
+        Returns
+        -------
+        Dict
+                    {'reference': reference_ts,
+                    'query': query_ts}
+                    Dictionary with the mvts representation of the single features extracted for the
+                                                                    reference and the query batch
         """
         pv_name = self.data['reference'][feat_idx]['name']
         reference_ts = np.array(self.scale_pv(pv_name, self.data['reference'][feat_idx]['values'], mode = self.scaling)).reshape(-1, 1)
@@ -783,6 +1044,20 @@ class Dtw:
     def weight_optimization_single_batch(self, query_id, step_pattern, n_jobs):
         """
         Optimization step regarding a single batch
+
+        Parameters
+        ----------
+        query_id : string
+                    ID of the query batch
+        step_pattern : string
+                    Step pattern used
+        n_jobs : int
+                    Number of weights to compute in parallel
+
+        Returns
+        -------
+        weights : list
+                    list of updated weights
         """
         reference_ts = self.convert_to_mvts(self.data['reference'])
         query_ts = self.convert_to_mvts(self.data['queries'][query_id])
@@ -815,6 +1090,20 @@ class Dtw:
     def weight_optimization_step(self, step_pattern='symmetric2', update=False, n_jobs=1):
         """
         Single iteration of the optimization algorithm, considering all batches in the instance
+
+        Parameters
+        ----------
+        step_pattern : string
+                    Step pattern used
+        update : boolean
+                    If True, updates the variables weights in the Dtw object
+        n_jobs : int
+                    Number of weights to compute in parallel
+
+        Returns
+        -------
+        updated_weights : Numpy array
+                    Weights updated from all the query batches
         """
         tot_feats = len(self.data['reference'])
         num_queries = self.data['num_queries']
@@ -836,6 +1125,20 @@ class Dtw:
                                                                              file_path=0, n_jobs=1):
         """
         Implements the algorithm for the optimization of the weights
+
+        Parameters
+        ----------
+        step_pattern : string
+                    Step pattern used
+        convergence_threshold : float
+                    Percentage change in the weight vector under which we consider the algorithm has
+                                                                                reached convergence
+        n_steps : int
+                    Number of maximum iteration of the algorithm
+        file_path : string
+                    Path to the pickle file where to store the weights
+        n_jobs : int
+                    Number of weights to compute in parallel
         """
         current_weights = self.data['feat_weights']
         old_weights = self.data['feat_weights']
@@ -869,6 +1172,11 @@ class Dtw:
     def get_weight_variables(self):
         """
         Returns a dictionary with the weight for each variable
+
+        Returns
+        -------
+        var_weight : dict
+                    Dictionary of the form {pv_name : pv_weight}
         """
         var_names = [pv['name'] for pv in self.data['reference']]
         var_weight = {var: weight for var, weight in zip(var_names, self.data['feat_weights'])}
@@ -877,6 +1185,13 @@ class Dtw:
     def plot_weights(self, n=25, figsize=(15, 8)):
         """
         Horizontal bar chart with variables' weights sorted by magnitude
+
+        Parameters
+        ----------
+        n : int
+                    Number of highest weight variables to plot
+        figsize : tuple
+                    Size of the matplotlib figure
         """
         #plt.rcdefaults()
         fig, ax = plt.subplots(figsize=figsize)
@@ -900,6 +1215,13 @@ class Dtw:
     def plot_by_name(self, _id, pv_name):
         """
         Plots one pv relative to a batch with ID equal to _id, according to its name pv_name
+
+        Parameters
+        ----------
+        _id : string
+                    ID of the batch to consider
+        pv_name : string
+                    Name of the PV to plot
         """
         pv_list = [pv['name'] for pv in self.data['reference']]
 
@@ -924,6 +1246,23 @@ class Dtw:
         Performs warping of reference and query values.
         Symmetric: reference and query warped to common time axis
         Asymmetric: query warped to reference time axis averaging warped elements
+
+        Parameters
+        ----------
+        ref_values : list
+                    List of the PV values of the reference batch
+        query_values : list
+                    List of the PV values of the query batch
+        warping_path : list
+                    List of tuples containing the wapring steps
+        symmertic : boolean
+                    If True, maps both reference and query to a common time axis
+                    If False, warps only the query batch on the time axis of the reference batch
+        Returns
+        -------
+        list
+                    [warped_ref : warped reference PV,
+                    warped_query : warped query PV]
         """
         query_warping = [x[1] for x in warping_path]
         ref_warping = [x[0] for x in warping_path]
@@ -948,6 +1287,17 @@ class Dtw:
     def plot_warped_curves(self, query_id, pv_list, step_pattern, symmetric=False):
         """
         Plot warping curves for all pvs in pv_list, for both reference and query batch
+
+        Parameters
+        ----------
+        query_id : string
+                    ID of the query bacth
+        pv_list : list
+                    List of PV names to plot
+        step_pattern : string
+                    Step pattern to consider
+        symmetric: boolean
+                    If True, performs symmetric warping between reference and query
         """
         if isinstance(pv_list, str):
             pv_list = [pv_list]
@@ -973,6 +1323,17 @@ class Dtw:
         plt.show()
 
     def online_scale(self, pv_dict_online):
+        """
+        Parameters
+        ----------
+        pv_dict_online : dict
+                    Dictionary representing a cut PV
+
+        Returns
+        -------
+        scaled_values : Numpy array
+                    Array of scaled values
+        """
         pv_name = pv_dict_online['name']
         pv_values = np.array(pv_dict_online['values'])
         pv_min, pv_max = self.scale_params[pv_name]
@@ -981,6 +1342,18 @@ class Dtw:
         return scaled_values
 
     def online_query(self, query_id, length):
+        """
+        Parameters
+        ----------
+        query_id : string
+                    ID of the query batch
+        length : int
+                    Length to cut the query batch
+        Returns
+        -------
+        cut_query : dict
+                    Dictionary representing the cut query
+        """
         query = self.data['queries'][query_id]
 
         cut_query = [{'name':query_pv['name'], 'values':self.online_scale({'name':query_pv['name'], 'values':query_pv['values'][:length]})} for query_pv in query]
@@ -988,6 +1361,21 @@ class Dtw:
         return cut_query
 
     def check_open_ended(self, query_id, length, step_pattern):
+        """
+        Parameters
+        ----------
+        query_id : string
+                    ID of the query batch
+        length: int
+                    Length of the cut query batch
+        step_pattern : string
+                    Step pattern to check
+        Returns
+        -------
+        boolean
+                    True if the open-ended DTW has already been applied to the specified combination
+                                                                        (ID, length, step_pattern)
+        """
         check_id = query_id in self.data_open_ended['queries']
         if check_id:
             check = bool(list(filter(lambda x: x['step_pattern']==step_pattern and x['length']==length, self.data_open_ended['queries'][query_id])))
@@ -996,7 +1384,25 @@ class Dtw:
             return False
 
     def generate_train_set(self, n_rows=100, step_pattern='symmetricP2', n_jobs = 1, seed=42, query_id = False):
+        """
+        Parameters
+        ----------
+        n_rows : int
+                    Length of the data set to generate
+        step_pattern : string
+                    Step pattern to use
+        n_jobs : int
+                    Number of cores to use
+        seed : int
+                    Seed for the pseudo ranodom number generator
+        query_id : string
+                    If specified, generates a dataset relative to the given query
 
+        Returns
+        -------
+        Pandas data frame
+                    Data frame containing the data set
+        """
         rand_gen = np.random.RandomState(seed)
         data_set = list()
         id_set = list()

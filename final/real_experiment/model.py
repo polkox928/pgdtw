@@ -12,6 +12,17 @@ import os
 
 
 def build_structured_array(data_set):
+    """
+    Parameters
+    ----------
+    data_set: Pandas data frame
+                Data set containing at least the length of the online query and its total duration
+
+    Returns
+    -------
+    res : Numpy structured array
+                Array suitable to be used by sksurv methods
+    """
     output = list()
     for idx, row in data_set.iterrows():
         survival_time = row['true_length'] - row['length']
@@ -21,6 +32,32 @@ def build_structured_array(data_set):
 
 
 def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
+    """
+    Parameters
+    ----------
+    t_ref : int
+                Time instant on the reference batch
+    t : int
+                Time instant on the query batch
+    ongoing_id : string
+                ID of the ongoing query
+    D : Dtw object
+                Dtw object with open-ended information
+    data : dict
+                Dictionary of the form {batch_ID : list_ov_PVs_dictionaries}
+
+    Returns
+    -------
+    tuple
+            (data_set, data_y)
+            data_set : Pandas data frame
+                        Data set containing information about:
+                        - DTW distance
+                        - length
+                        - PV values
+            data_y : Numpy structured array
+                        Structured array suitable to be used with sksurv methods
+    """
     data_set = list()
 
     for _id, warp_dist in D.data_open_ended['warp_dist'].items():
@@ -53,6 +90,19 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
 class Estimator:
 
     def __init__(self, dtw_obj, regressor=LinearRegression(), loss='coxph', learning_rate=0.1, n_estimators=100, max_depth=3, subsample=1.0, random_state=42):
+        """
+        Parameters
+        ----------
+        dtw_obj : Dtw object
+                    Trained Dtw object
+        regressor : sklearn model
+                    Sklearn regression model
+        loss, learning_rate, n_estimators, max_depth, subsample :
+                    parameters of the GradientBoostingSurvivalAnalysis method
+                    Complete DOC : https://scikit-survival.readthedocs.io/en/latest/generated/sksurv.ensemble.GradientBoostingSurvivalAnalysis.html
+        random_state : int
+                    Seed of the pseudo random number generator
+        """
         np.random.seed(random_state)
         self.regressor = regressor
         self.loss = loss
@@ -65,6 +115,18 @@ class Estimator:
         self.dtw_obj = dtw_obj
 
     def fit(self, x_train, y_train):
+        """
+        Parameters
+        ----------
+        x_train : pandas data frame
+                    data set of predictors as returned by generate_dataset_xy()
+        y_train : numpy structured array
+                    Structured array suitable to be used with sksurv methods
+
+        Returns
+        -------
+        Reference to the object itself
+        """
         self.model = GradientBoostingSurvivalAnalysis(loss=self.loss,
                                                       learning_rate=self.learning_rate,
                                                       n_estimators=self.n_estimators,
@@ -84,6 +146,21 @@ class Estimator:
         return self
 
     def predict(self, new_x, by='risk'):
+        """
+        Parameters
+        ----------
+        new_x : pandas data frame
+                    Data frame of the data point to predict
+        by : string {'rank', 'risk', 'scaled_risk'}
+                    Which feature to consider when applying the regression model to predict
+                                                                                    the time-to-end
+
+        Returns
+        -------
+        numpy array
+                    Array of time-to-end estimates
+
+        """
         x_new = pd.DataFrame(deepcopy(new_x))
         x_new['risk'] = self.model.predict(x_new)
         query_id = list(x_new.index)[0]
@@ -135,10 +212,32 @@ class Estimator:
         return np.array(ests)
 
     def score(self, x_test, y_test):
+        """
+        Parameters
+        ----------
+        x_test : pandas data frame
+                    data set of predictors as returned by generate_dataset_xy()
+        y_test : numpy structured array
+                    Structured array suitable to be used with sksurv methods
+
+        Returns
+        -------
+        float
+                    mean absolute error
+        """
         y_pred = self.predict(x_test)
         return np.mean(np.abs(y_pred - y_test['time_remaining']))
 
     def get_params(self, deep=True):
+        """
+        Parameters:
+        deep : boolean
+                    Inserted only for compatibility with sklearn
+
+        Returns
+        dict
+                    Dictionary of the initializing parameters of the Estimator class
+        """
         return {'dtw_obj': self.dtw_obj,
                 'regressor': self.regressor,
                 'loss': self.loss,
@@ -148,5 +247,11 @@ class Estimator:
                 'subsample': self.subsample}
 
     def set_params(self, parameters):
+        """
+        Parameters
+        ----------
+        parameters : dict
+                    Dictionary of pairs {parameter_name : parameter_value}
+        """
         for parameter, value in parameters.items():
             setattr(self, parameter, value)
