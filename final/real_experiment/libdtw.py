@@ -19,6 +19,12 @@ def load_data(n_to_keep=50, data_path = "data/ope3_26.pickle"):
     """
     Load data of operation 3.26, only the n_to_keep batches with duration closer to the median one
     are selected
+
+    Parameters
+    ----------
+    n_to_keep : int
+                Number of batches with duration close to the median one to include in the data set
+    data_path : string
     """
     with open(data_path, "rb") as infile:
         data = pickle.load(infile)
@@ -34,19 +40,12 @@ def load_data(n_to_keep=50, data_path = "data/ope3_26.pickle"):
 
     median_len = np.median([l for l, _id in operation_length])
 
-    # Select the ref_len=50 closest to the median bacthes
+    # Select the batches closer to the median one
     # center around the median
     centered = [(abs(l-median_len), _id) for l, _id in operation_length]
     selected = sorted(centered)[:n_to_keep]
 
     med_id = selected[0][1]  # 5153
-
-    # pop batches without all pvs
-    # ids = list(data.keys())
-    # for _id in ids:
-    #     k = len(data[_id])
-    #     if k != 99:
-    #         data.pop(_id)
 
     all_ids = list(data.keys())
     for _id in all_ids:
@@ -58,6 +57,19 @@ def load_data(n_to_keep=50, data_path = "data/ope3_26.pickle"):
     return data
 
 def assign_ref(data):
+    """
+    Given a data set in the usual form, chooses the reference as the batch with the median length
+
+    Parameters
+    ----------
+    data : dict
+                Dictionary of data in the form {batch_id : list_ov_PVs_dictionaries}
+
+    Returns
+    -------
+    data : dict
+                data as input, with 'reference' key included
+    """
     data = copy(data)
     operation_length = list()
     pv_dataset = list()
@@ -95,7 +107,7 @@ def assign_ref(data):
 
 class Dtw:
     """
-    Everything related to dtw and experimentation
+    Everything related to dtw and optimization
     """
 
     def __init__(self, json_obj=False, random_weights = True, scaling='group'):

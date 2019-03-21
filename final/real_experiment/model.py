@@ -13,6 +13,9 @@ import os
 
 def build_structured_array(data_set):
     """
+    Starting from a usual dataset, this function creates a structured numpy array of 2-tuples, where
+    the first entry represent the 'status' of the entry (censored or no event = False, event = True)
+    and the second represents the time to event
     Parameters
     ----------
     data_set: Pandas data frame
@@ -33,6 +36,10 @@ def build_structured_array(data_set):
 
 def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
     """
+    Generates a data set relative to the ongoing batch. It takes the time 't' on the ongoing batch,
+    the mapped 't_ref' on the reference batch and than every point in the historical batches that
+    were mapped to 't_ref'. It adds also the PV values to every entry
+
     Parameters
     ----------
     t_ref : int
@@ -88,9 +95,24 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
 
 
 class Estimator:
+    """
+    Methods
+    -------
+    - __init__
+    - fit
+    - predict
+    - score
+    - get_params
+    - set_params
+    """
 
-    def __init__(self, dtw_obj, regressor=LinearRegression(), loss='coxph', learning_rate=0.1, n_estimators=100, max_depth=3, subsample=1.0, random_state=42):
+    def __init__(self, dtw_obj, regressor=LinearRegression(), loss='coxph', learning_rate=0.1,\
+                                    n_estimators=100, max_depth=3, subsample=1.0, random_state=42):
         """
+        The class needs to be initialized with the Dtw object already trained, the regression model
+        to use after the survival analysis model, and all the parameters for the survival analysis
+        model
+
         Parameters
         ----------
         dtw_obj : Dtw object
@@ -116,6 +138,9 @@ class Estimator:
 
     def fit(self, x_train, y_train):
         """
+        Fits the survival analysis model to the training data, and prepare the risk data used in the
+        predict method by the regression model
+
         Parameters
         ----------
         x_train : pandas data frame
@@ -147,6 +172,9 @@ class Estimator:
 
     def predict(self, new_x, by='risk'):
         """
+        First computes the risk of the new data point, than converts it to a time measure via the
+        regression model feeded as input to the class
+
         Parameters
         ----------
         new_x : pandas data frame
@@ -213,6 +241,8 @@ class Estimator:
 
     def score(self, x_test, y_test):
         """
+        Computes the mean absolute erros on the test set in input
+
         Parameters
         ----------
         x_test : pandas data frame
@@ -230,6 +260,8 @@ class Estimator:
 
     def get_params(self, deep=True):
         """
+        Returns the parameters of the class
+
         Parameters:
         deep : boolean
                     Inserted only for compatibility with sklearn
@@ -248,6 +280,8 @@ class Estimator:
 
     def set_params(self, parameters):
         """
+        Sets the parameters of the class
+        
         Parameters
         ----------
         parameters : dict
