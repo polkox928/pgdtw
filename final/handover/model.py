@@ -74,6 +74,7 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data, open_ended=True):
     for _id, warp_dist in data_source:
         if _id == ongoing_id:
             mapped_points = list(filter(lambda x: x[1] == t, D.data_open_ended['warp_dist'][ongoing_id]))
+
         else:
             mapped_points = list(filter(lambda x: x[0] == t_ref, warp_dist))
         for (i, j, d) in mapped_points:

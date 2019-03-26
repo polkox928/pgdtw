@@ -34,7 +34,7 @@ def build_structured_array(data_set):
     return res
 
 
-def generate_dataset_xy(t_ref, t, ongoing_id, D, data, open_ended=True):
+def generate_dataset_xy(t_ref, t, ongoing_id, D, data):
     """
     Generates a data set relative to the ongoing batch. It takes the time 't' on the ongoing batch,
     the mapped 't_ref' on the reference batch and than every point in the historical batches that
@@ -66,14 +66,10 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data, open_ended=True):
                         Structured array suitable to be used with sksurv methods
     """
     data_set = list()
-    if open_ended:
-        data_source = D.data_open_ended['warp_dist'].items()
-    else:
-        data_source = D.data['warp_dist'].items()
 
-    for _id, warp_dist in data_source:
+    for _id, warp_dist in D.data_open_ended['warp_dist'].items():
         if _id == ongoing_id:
-            mapped_points = list(filter(lambda x: x[1] == t, D.data_open_ended['warp_dist'][ongoing_id]))
+            mapped_points = list(filter(lambda x: (x[0] == t_ref and x[1] == t), warp_dist))
         else:
             mapped_points = list(filter(lambda x: x[0] == t_ref, warp_dist))
         for (i, j, d) in mapped_points:
