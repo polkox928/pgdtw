@@ -70,19 +70,35 @@ def generate_dataset_xy(t_ref, t, ongoing_id, D, data, open_ended=True):
         data_source = D.data_open_ended['warp_dist'].items()
     else:
         data_source = D.data['warp_dist'].items()
+        
+    mapped_points = list(filter(lambda x: x[1] == t, D.data_open_ended['warp_dist'][ongoing_id]))
+    for (i, j, d) in mapped_points:
+        data_point = {'DTW_distance': d,
+                      'length': j + 1,
+                      'query_id': ongoing_id,
+                      'true_length': len(data[ongoing_id][0]['values'])}
+        data_set.append(data_point)
+        
 
-    for _id, warp_dist in data_source:
-        if _id == ongoing_id:
-            mapped_points = list(filter(lambda x: x[1] == t, D.data_open_ended['warp_dist'][ongoing_id]))
-        else:
-            mapped_points = list(filter(lambda x: x[0] == t_ref, warp_dist))
+    for _id, warp_dist in D.data['warp_dist'].items():
+        mapped_points = list(filter(lambda x: x[0] <= t_ref and x[0] >= t_ref - 10, warp_dist))
         for (i, j, d) in mapped_points:
             data_point = {'DTW_distance': d,
                           'length': j + 1,
                           'query_id': _id,
                           'true_length': len(data[_id][0]['values'])}
             data_set.append(data_point)
-
+            
+        mapped_points = list(filter(lambda x: x[0] == t_ref, D.data_open_ended['warp_dist'][_id]))
+        for (i, j, d) in mapped_points:
+            data_point = {'DTW_distance': d,
+                          'length': j + 1,
+                          'query_id': _id,
+                          'true_length': len(data[_id][0]['values'])}
+            data_set.append(data_point)
+        
+        
+        
     data_set = pd.DataFrame(data_set)
     data_set.index = data_set['query_id']
 
